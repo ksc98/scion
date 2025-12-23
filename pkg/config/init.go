@@ -49,8 +49,7 @@ const DefaultSettingsJSON = `{
 `
 
 const DefaultSystemPrompt = `
-# Scion Agent
-You are a specialized agent working within a Scion.
+# Placeholder
 `
 
 const DefaultScionJSON = `{
@@ -60,7 +59,7 @@ const DefaultScionJSON = `{
 }
 `
 
-const DefaultGeminiMD = `## Scion Context
+const DefaultGeminiMD = `## Placeholder
 `
 
 const DefaultBashrc = `# scion agent bashrc
