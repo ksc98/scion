@@ -1,18 +1,59 @@
 # Assumes a local copy of gemini-cli-sandbox
+ARG BASE_IMAGE=gemini-cli-sandbox
 
-
-FROM gemini-cli-sandbox
+FROM ${BASE_IMAGE} AS builder
 USER root
 
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  tmux \
-  curl \
-  git \
   wget \
-  make libssl-dev libcurl4-gnutls-dev libexpat1-dev libghc-zlib-dev gettext \
+  make \
+  gcc \
+  libssl-dev \
+  libcurl4-gnutls-dev \
+  libexpat1-dev \
+  libghc-zlib-dev \
+  gettext \
   ca-certificates \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+
+# Download and compile Git
+# later version required to support git worktree relative paths
+RUN wget https://www.kernel.org/pub/software/scm/git/git-2.52.0.tar.gz && \
+    tar -xvf git-2.52.0.tar.gz && \
+    rm git-2.52.0.tar.gz
+
+WORKDIR /opt/git-2.52.0/
+# Compile to /opt/git to keep it isolated for copying
+RUN make prefix=/opt/git all && \
+    make prefix=/opt/git install
+
+
+FROM ${BASE_IMAGE}
+USER root
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  tmux \
+  curl \
+  wget \
+  libssl-dev \
+  libcurl4-gnutls-dev \
+  libexpat1-dev \
+  libghc-zlib-dev \
+  gettext \
+  ca-certificates \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy git from builder
+COPY --from=builder /opt/git /usr/local/
+
+# Create symlink as in original
+RUN ln -s /usr/local/bin/git /usr/bin/git
 
 # Install Go
 ARG GO_VERSION=1.25.4
@@ -25,20 +66,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
     curl -L "https://go.dev/dl/go${GO_VERSION}.${GO_ARCH}.tar.gz" -o go.tar.gz && \
     tar -C /usr/local -xzf go.tar.gz && \
     rm go.tar.gz
-
-  # Install git from source
-  # later version required to support git worktree relative paths
-WORKDIR /opt
-
-RUN wget https://www.kernel.org/pub/software/scm/git/git-2.52.0.tar.gz
-RUN tar -xvf git-2.52.0.tar.gz
-WORKDIR /opt/git-2.52.0/
-RUN make prefix=/usr/local all
-RUN make prefix=/usr/local install
-RUN rm /usr/bin/git
-RUN ln -s /usr/local/bin/git /usr/bin/git
-RUN rm -r /opt/
-
 
 ENV PATH=/usr/local/go/bin:$PATH
 
