@@ -30,7 +30,7 @@ Runtimes define *where* the agent containers are executed (e.g., local Docker, K
 | `host` | string | (Docker) The path to the Docker socket. Default: `unix:///var/run/docker.sock`. |
 | `namespace` | string | (Kubernetes) The namespace to deploy agents into. |
 | `context` | string | (Kubernetes) The kubectl context to use. |
-| `tmux` | boolean | (Optional) Whether to enable tmux by default for this runtime. |
+| `tmux` | boolean | (Optional) Whether to enable tmux by default for this runtime. See the [Tmux Guide](guides/tmux.md). |
 | `env` | object | (Optional) A map of environment variables to set for the runtime execution. |
 
 **Note**: The runtime type (`docker`, `kubernetes`, `container`) is inferred from the runtime's name in the registry or by context. Standard names are `docker`, `container`, and `kubernetes`.
@@ -90,7 +90,7 @@ Profiles act as the "glue" that binds a Runtime to specific Harness configuratio
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `runtime` | string | The name of the runtime to use (must exist in `runtimes`). |
-| `tmux` | boolean | Whether to wrap the agent process in a `tmux` session. |
+| `tmux` | boolean | Whether to wrap the agent process in a `tmux` session. See the [Tmux Guide](guides/tmux.md). |
 | `env` | object | (Optional) A map of environment variables to set for this profile (merges into runtime env). |
 | `harness_overrides` | object | (Optional) A map of harness names to override specific settings. |
 

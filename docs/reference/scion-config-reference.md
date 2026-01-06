@@ -47,8 +47,8 @@ Whether the agent should run in detached mode by default.
 - **Example**: `"detached": false`
 
 ### `use_tmux` (boolean)
-If set to `true`, the agent's main process will be wrapped in a `tmux` session. This enables persistent interactive sessions that can be detached and re-attached using the `scion attach` command.
-- **Default**: `false`
+If set to `true`, the agent's main process will be wrapped in a `tmux` session. This enables persistent interactive sessions that can be detached and re-attached using the `scion attach` command. See the [Tmux Guide](../guides/tmux.md) for more details.
+
 - **Details**: When enabled, the image must have `tmux` installed. If `tmux` is not found in the image, the container will fail to start.
 - **Example**: `"use_tmux": true`
 
