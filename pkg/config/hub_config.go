@@ -28,6 +28,43 @@ type HubServerConfig struct {
 	CORSMaxAge         int      `json:"corsMaxAge" yaml:"corsMaxAge" koanf:"corsMaxAge"`
 }
 
+// RuntimeHostConfig holds configuration for the Runtime Host API server.
+type RuntimeHostConfig struct {
+	// Enabled indicates whether the Runtime Host API is enabled
+	Enabled bool `json:"enabled" yaml:"enabled" koanf:"enabled"`
+	// Port is the HTTP port to listen on (default 9800)
+	Port int `json:"port" yaml:"port" koanf:"port"`
+	// Host is the address to bind to (e.g., "0.0.0.0" or "127.0.0.1")
+	Host string `json:"host" yaml:"host" koanf:"host"`
+	// ReadTimeout is the maximum duration for reading the entire request
+	ReadTimeout time.Duration `json:"readTimeout" yaml:"readTimeout" koanf:"readTimeout"`
+	// WriteTimeout is the maximum duration before timing out writes
+	WriteTimeout time.Duration `json:"writeTimeout" yaml:"writeTimeout" koanf:"writeTimeout"`
+
+	// Mode is the operational mode: "connected" (full control) or "read-only" (reporting only)
+	Mode string `json:"mode" yaml:"mode" koanf:"mode"`
+	// HubEndpoint is the Hub API endpoint for status reporting (when Hub not co-located)
+	HubEndpoint string `json:"hubEndpoint" yaml:"hubEndpoint" koanf:"hubEndpoint"`
+
+	// HostID is a unique identifier for this runtime host (auto-generated if empty)
+	HostID string `json:"hostId" yaml:"hostId" koanf:"hostId"`
+	// HostName is a human-readable name for this runtime host
+	HostName string `json:"hostName" yaml:"hostName" koanf:"hostName"`
+
+	// CORS settings
+	CORSEnabled        bool     `json:"corsEnabled" yaml:"corsEnabled" koanf:"corsEnabled"`
+	CORSAllowedOrigins []string `json:"corsAllowedOrigins" yaml:"corsAllowedOrigins" koanf:"corsAllowedOrigins"`
+	CORSAllowedMethods []string `json:"corsAllowedMethods" yaml:"corsAllowedMethods" koanf:"corsAllowedMethods"`
+	CORSAllowedHeaders []string `json:"corsAllowedHeaders" yaml:"corsAllowedHeaders" koanf:"corsAllowedHeaders"`
+	CORSMaxAge         int      `json:"corsMaxAge" yaml:"corsMaxAge" koanf:"corsMaxAge"`
+}
+
+// Runtime Host operational modes
+const (
+	RuntimeHostModeConnected = "connected"
+	RuntimeHostModeReadOnly  = "read-only"
+)
+
 // DatabaseConfig holds database connection settings.
 type DatabaseConfig struct {
 	Driver string `json:"driver" yaml:"driver" koanf:"driver"` // sqlite, postgres
@@ -39,6 +76,9 @@ type DatabaseConfig struct {
 type GlobalConfig struct {
 	// Hub API server settings
 	Hub HubServerConfig `json:"hub" yaml:"hub" koanf:"hub"`
+
+	// Runtime Host API server settings
+	RuntimeHost RuntimeHostConfig `json:"runtimeHost" yaml:"runtimeHost" koanf:"runtimeHost"`
 
 	// Database settings
 	Database DatabaseConfig `json:"database" yaml:"database" koanf:"database"`
@@ -60,6 +100,19 @@ func DefaultGlobalConfig() GlobalConfig {
 			CORSAllowedOrigins: []string{"*"},
 			CORSAllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 			CORSAllowedHeaders: []string{"Authorization", "Content-Type", "X-Scion-Host-Token", "X-Scion-Agent-Token", "X-API-Key"},
+			CORSMaxAge:         3600,
+		},
+		RuntimeHost: RuntimeHostConfig{
+			Enabled:      false,
+			Port:         9800,
+			Host:         "0.0.0.0",
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 120 * time.Second, // Longer for agent operations
+			Mode:         RuntimeHostModeConnected,
+			CORSEnabled:  true,
+			CORSAllowedOrigins: []string{"*"},
+			CORSAllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			CORSAllowedHeaders: []string{"Authorization", "Content-Type", "X-Scion-Host-Token", "X-API-Key"},
 			CORSMaxAge:         3600,
 		},
 		Database: DatabaseConfig{
@@ -91,10 +144,23 @@ func LoadGlobalConfig(configPath string) (*GlobalConfig, error) {
 		"hub.corsAllowedMethods": defaults.Hub.CORSAllowedMethods,
 		"hub.corsAllowedHeaders": defaults.Hub.CORSAllowedHeaders,
 		"hub.corsMaxAge":         defaults.Hub.CORSMaxAge,
-		"database.driver":        defaults.Database.Driver,
-		"database.url":           defaults.Database.URL,
-		"logLevel":               defaults.LogLevel,
-		"logFormat":              defaults.LogFormat,
+		// RuntimeHost defaults
+		"runtimeHost.enabled":            defaults.RuntimeHost.Enabled,
+		"runtimeHost.port":               defaults.RuntimeHost.Port,
+		"runtimeHost.host":               defaults.RuntimeHost.Host,
+		"runtimeHost.readTimeout":        defaults.RuntimeHost.ReadTimeout,
+		"runtimeHost.writeTimeout":       defaults.RuntimeHost.WriteTimeout,
+		"runtimeHost.mode":               defaults.RuntimeHost.Mode,
+		"runtimeHost.corsEnabled":        defaults.RuntimeHost.CORSEnabled,
+		"runtimeHost.corsAllowedOrigins": defaults.RuntimeHost.CORSAllowedOrigins,
+		"runtimeHost.corsAllowedMethods": defaults.RuntimeHost.CORSAllowedMethods,
+		"runtimeHost.corsAllowedHeaders": defaults.RuntimeHost.CORSAllowedHeaders,
+		"runtimeHost.corsMaxAge":         defaults.RuntimeHost.CORSMaxAge,
+		// Database defaults
+		"database.driver": defaults.Database.Driver,
+		"database.url":    defaults.Database.URL,
+		"logLevel":        defaults.LogLevel,
+		"logFormat":       defaults.LogFormat,
 	}, "."), nil); err != nil {
 		return nil, err
 	}
@@ -134,6 +200,11 @@ func LoadGlobalConfig(configPath string) (*GlobalConfig, error) {
 	// Unmarshal into GlobalConfig struct
 	config := &GlobalConfig{
 		Hub: HubServerConfig{
+			CORSAllowedOrigins: make([]string, 0),
+			CORSAllowedMethods: make([]string, 0),
+			CORSAllowedHeaders: make([]string, 0),
+		},
+		RuntimeHost: RuntimeHostConfig{
 			CORSAllowedOrigins: make([]string, 0),
 			CORSAllowedMethods: make([]string, 0),
 			CORSAllowedHeaders: make([]string, 0),
