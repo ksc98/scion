@@ -3,7 +3,9 @@ package hubclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/apiclient"
@@ -176,9 +178,19 @@ func WithDevToken(token string) Option {
 // If no token is found, authentication is not configured.
 func WithAutoDevAuth() Option {
 	return func(c *client) {
-		token := apiclient.ResolveDevToken()
+		token, source := apiclient.ResolveDevTokenWithSource()
 		if token != "" {
 			c.transport.Auth = &apiclient.BearerAuth{Token: token}
+			if os.Getenv("SCION_DEBUG") != "" {
+				// Truncate token for display
+				displayToken := token
+				if len(displayToken) > 20 {
+					displayToken = displayToken[:20] + "..."
+				}
+				fmt.Fprintf(os.Stderr, "[DEBUG] Dev auth token: %s (source: %s)\n", displayToken, source)
+			}
+		} else if os.Getenv("SCION_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "[DEBUG] No dev auth token found\n")
 		}
 	}
 }

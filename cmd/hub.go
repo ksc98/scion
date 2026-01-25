@@ -156,21 +156,26 @@ func getHubClient(settings *config.Settings) (hubclient.Client, error) {
 		return nil, fmt.Errorf("Hub endpoint not configured. Set SCION_HUB_ENDPOINT or use --hub flag")
 	}
 
+	debug := os.Getenv("SCION_DEBUG") != ""
+
 	var opts []hubclient.Option
 
 	// Add authentication - check in priority order
+	// Note: HostToken is intentionally NOT used here. HostTokens are for host-level
+	// operations (registration, heartbeats) and are NOT user authentication tokens.
+	// For user operations (listing groves, agents, etc.), we use user tokens, API keys,
+	// or dev auth.
 	authConfigured := false
+	authMethod := ""
 	if settings.Hub != nil {
 		if settings.Hub.Token != "" {
 			opts = append(opts, hubclient.WithBearerToken(settings.Hub.Token))
 			authConfigured = true
+			authMethod = "bearer token from settings"
 		} else if settings.Hub.APIKey != "" {
 			opts = append(opts, hubclient.WithAPIKey(settings.Hub.APIKey))
 			authConfigured = true
-		} else if settings.Hub.HostToken != "" {
-			// Use host token for authentication if available
-			opts = append(opts, hubclient.WithBearerToken(settings.Hub.HostToken))
-			authConfigured = true
+			authMethod = "API key from settings"
 		}
 	}
 
@@ -178,6 +183,12 @@ func getHubClient(settings *config.Settings) (hubclient.Client, error) {
 	// This checks SCION_DEV_TOKEN env var and ~/.scion/dev-token file
 	if !authConfigured {
 		opts = append(opts, hubclient.WithAutoDevAuth())
+		authMethod = "dev auth (auto-detected)"
+	}
+
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Hub client auth: %s\n", authMethod)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Hub endpoint: %s\n", endpoint)
 	}
 
 	opts = append(opts, hubclient.WithTimeout(30*time.Second))

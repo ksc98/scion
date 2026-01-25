@@ -244,3 +244,57 @@ func TestResolveDevToken(t *testing.T) {
 		_ = token
 	})
 }
+
+func TestResolveDevTokenWithSource(t *testing.T) {
+	// Create temp directory for testing
+	tmpDir, err := os.MkdirTemp("", "scion-resolve-source-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Clear any existing env vars
+	originalToken := os.Getenv("SCION_DEV_TOKEN")
+	originalFile := os.Getenv("SCION_DEV_TOKEN_FILE")
+	defer func() {
+		os.Setenv("SCION_DEV_TOKEN", originalToken)
+		os.Setenv("SCION_DEV_TOKEN_FILE", originalFile)
+	}()
+
+	t.Run("from env var with source", func(t *testing.T) {
+		os.Setenv("SCION_DEV_TOKEN", "scion_dev_from_env")
+		os.Setenv("SCION_DEV_TOKEN_FILE", "")
+
+		token, source := ResolveDevTokenWithSource()
+		if token != "scion_dev_from_env" {
+			t.Errorf("ResolveDevTokenWithSource() token = %v, want scion_dev_from_env", token)
+		}
+		if source != "SCION_DEV_TOKEN env var" {
+			t.Errorf("ResolveDevTokenWithSource() source = %v, want 'SCION_DEV_TOKEN env var'", source)
+		}
+
+		os.Unsetenv("SCION_DEV_TOKEN")
+	})
+
+	t.Run("from custom file via env with source", func(t *testing.T) {
+		os.Unsetenv("SCION_DEV_TOKEN")
+
+		customFile := filepath.Join(tmpDir, "custom-resolve-source")
+		if err := os.WriteFile(customFile, []byte("scion_dev_from_file\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		os.Setenv("SCION_DEV_TOKEN_FILE", customFile)
+
+		token, source := ResolveDevTokenWithSource()
+		if token != "scion_dev_from_file" {
+			t.Errorf("ResolveDevTokenWithSource() token = %v, want scion_dev_from_file", token)
+		}
+		expectedSource := "SCION_DEV_TOKEN_FILE: " + customFile
+		if source != expectedSource {
+			t.Errorf("ResolveDevTokenWithSource() source = %v, want %v", source, expectedSource)
+		}
+
+		os.Unsetenv("SCION_DEV_TOKEN_FILE")
+	})
+}

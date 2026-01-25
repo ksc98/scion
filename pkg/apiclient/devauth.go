@@ -99,28 +99,45 @@ func ValidateDevToken(provided, expected string) bool {
 // 2. SCION_DEV_TOKEN_FILE environment variable (path to token file)
 // 3. Default token file (~/.scion/dev-token)
 func ResolveDevToken() string {
+	token, _ := ResolveDevTokenWithSource()
+	return token
+}
+
+// ResolveDevTokenWithSource finds a development token and returns both
+// the token and the source it was loaded from.
+// It checks in order:
+// 1. SCION_DEV_TOKEN environment variable
+// 2. SCION_DEV_TOKEN_FILE environment variable (path to token file)
+// 3. Default token file (~/.scion/dev-token)
+func ResolveDevTokenWithSource() (string, string) {
 	// Priority 1: Environment variable
 	if token := os.Getenv("SCION_DEV_TOKEN"); token != "" {
-		return token
+		return token, "SCION_DEV_TOKEN env var"
 	}
 
 	// Priority 2: Custom token file from env
 	if tokenFile := os.Getenv("SCION_DEV_TOKEN_FILE"); tokenFile != "" {
 		if data, err := os.ReadFile(tokenFile); err == nil {
-			return strings.TrimSpace(string(data))
+			token := strings.TrimSpace(string(data))
+			if token != "" {
+				return token, "SCION_DEV_TOKEN_FILE: " + tokenFile
+			}
 		}
 	}
 
 	// Priority 3: Default token file
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ""
+		return "", ""
 	}
 
 	tokenFile := filepath.Join(home, ".scion", "dev-token")
 	if data, err := os.ReadFile(tokenFile); err == nil {
-		return strings.TrimSpace(string(data))
+		token := strings.TrimSpace(string(data))
+		if token != "" {
+			return token, "~/.scion/dev-token"
+		}
 	}
 
-	return ""
+	return "", ""
 }
