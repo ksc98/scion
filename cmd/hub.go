@@ -220,6 +220,7 @@ func runHubStatus(cmd *cobra.Command, args []string) error {
 			"configured":    settings.IsHubConfigured(),
 		}
 		if settings.Hub != nil {
+			status["groveId"] = settings.Hub.GroveID
 			status["hostId"] = settings.Hub.HostID
 			status["hasToken"] = settings.Hub.Token != ""
 			status["hasApiKey"] = settings.Hub.APIKey != ""
@@ -259,6 +260,7 @@ func runHubStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Configured: %v\n", settings.IsHubConfigured())
 
 	if settings.Hub != nil {
+		fmt.Printf("Grove ID:   %s\n", valueOrNone(settings.Hub.GroveID))
 		fmt.Printf("Host ID:    %s\n", valueOrNone(settings.Hub.HostID))
 		fmt.Printf("Has Token:  %v\n", settings.Hub.Token != "")
 		fmt.Printf("Has API Key: %v\n", settings.Hub.APIKey != "")
@@ -385,6 +387,13 @@ func runHubRegister(cmd *cobra.Command, args []string) error {
 	resp, err := client.Groves().Register(ctx, req)
 	if err != nil {
 		return fmt.Errorf("registration failed: %w", err)
+	}
+
+	// Save the grove ID
+	if resp.Grove != nil && resp.Grove.ID != "" {
+		if err := config.UpdateSetting(resolvedPath, "hub.groveId", resp.Grove.ID, isGlobal); err != nil {
+			fmt.Printf("Warning: failed to save grove ID: %v\n", err)
+		}
 	}
 
 	// Save the host token

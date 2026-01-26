@@ -75,6 +75,8 @@ type HubClientConfig struct {
 	Token string `json:"token,omitempty" yaml:"token,omitempty" koanf:"token"`
 	// APIKey is an API key for authentication (alternative to Token)
 	APIKey string `json:"apiKey,omitempty" yaml:"apiKey,omitempty" koanf:"apiKey"`
+	// GroveID is the unique identifier for the grove when registered with the Hub
+	GroveID string `json:"groveId,omitempty" yaml:"groveId,omitempty" koanf:"groveId"`
 	// HostID is the unique identifier for this host when registered with the Hub
 	HostID string `json:"hostId,omitempty" yaml:"hostId,omitempty" koanf:"hostId"`
 	// HostToken is the token received when registering this host with the Hub
@@ -510,6 +512,11 @@ func UpdateSetting(grovePath string, key string, value string, global bool) erro
 			current.Hub = &HubClientConfig{}
 		}
 		current.Hub.APIKey = value
+	case "hub.groveId":
+		if current.Hub == nil {
+			current.Hub = &HubClientConfig{}
+		}
+		current.Hub.GroveID = value
 	case "hub.hostId":
 		if current.Hub == nil {
 			current.Hub = &HubClientConfig{}
@@ -592,6 +599,11 @@ func GetSettingValue(s *Settings, key string) (string, error) {
 			return s.Hub.APIKey, nil
 		}
 		return "", nil
+	case "hub.groveId":
+		if s.Hub != nil {
+			return s.Hub.GroveID, nil
+		}
+		return "", nil
 	case "hub.hostId":
 		if s.Hub != nil {
 			return s.Hub.HostID, nil
@@ -647,6 +659,7 @@ func GetSettingsMap(s *Settings) map[string]string {
 		if s.Hub.APIKey != "" {
 			m["hub.apiKey"] = "********" // Mask API key
 		}
+		m["hub.groveId"] = s.Hub.GroveID
 		m["hub.hostId"] = s.Hub.HostID
 		if s.Hub.HostToken != "" {
 			m["hub.hostToken"] = "********" // Mask host token
