@@ -127,6 +127,8 @@ RUN mkdir -p /usr/local/share/npm-global
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=/usr/local/share/npm-global/bin:/usr/local/go/bin:/usr/local/gcloud/google-cloud-sdk/bin:$PATH
 ENV LC_ALL=C.UTF-8
+ENV EDITOR=nano
+ENV VISUAL=nano
 
 # Default to bash - no scion-specific entrypoint
 CMD ["bash"]

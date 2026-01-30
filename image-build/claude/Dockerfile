@@ -45,9 +45,7 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
   -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
   -x
 
-# Install Claude
-USER scion
-RUN curl -fsSL https://claude.ai/install.sh | bash
+
 
 # Copy and set up firewall script
 USER root
@@ -55,4 +53,8 @@ COPY init-firewall.sh /usr/local/bin/init-firewall.sh
 RUN chmod +x /usr/local/bin/init-firewall.sh && \
   echo "scion ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/scion-firewall && \
   chmod 0440 /etc/sudoers.d/scion-firewall
+
+# Install Claude
 USER scion
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH=/home/scion/.local/bin:$PATH
