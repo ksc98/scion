@@ -11,6 +11,29 @@ import type { Context, Next } from 'koa';
 import type { User } from '../../shared/types.js';
 import type { AppConfig } from '../config.js';
 
+/** Debug flag for auth middleware */
+let authDebugEnabled = false;
+
+/**
+ * Enable or disable auth debug logging
+ */
+export function setAuthDebug(enabled: boolean): void {
+  authDebugEnabled = enabled;
+}
+
+/**
+ * Debug logger for auth middleware
+ */
+function authDebug(message: string, data?: Record<string, unknown>): void {
+  if (!authDebugEnabled) return;
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.log(`[AUTH ${timestamp}] ${message}`, JSON.stringify(data, null, 2));
+  } else {
+    console.log(`[AUTH ${timestamp}] ${message}`);
+  }
+}
+
 /**
  * Extended Koa state with auth information
  */
@@ -37,6 +60,7 @@ function isProtectedRoute(url: string): boolean {
     '/auth/login',
     '/auth/callback',
     '/auth/error',
+    '/auth/debug', // Debug endpoint (only available when debug mode is enabled)
     '/assets/',
     '/favicon.ico',
   ];
@@ -62,24 +86,51 @@ function acceptsHtml(ctx: Context): boolean {
 /**
  * Create auth middleware that enforces authentication on protected routes
  *
- * @param _config - Application configuration (reserved for future use)
+ * @param config - Application configuration
  * @returns Koa middleware function
  */
-export function createAuthMiddleware(_config: AppConfig) {
+export function createAuthMiddleware(config: AppConfig) {
+  // Enable debug if config says so
+  if (config.debug) {
+    setAuthDebug(true);
+  }
+
   return async function authMiddleware(ctx: Context, next: Next) {
     const state = ctx.state as AuthState;
+    const requestId = state.requestId || 'unknown';
+
+    authDebug(`Request: ${ctx.method} ${ctx.path}`, {
+      requestId,
+      hasSession: !!ctx.session,
+      sessionKeys: ctx.session ? Object.keys(ctx.session) : [],
+      hasSessionUser: !!ctx.session?.user,
+      hasStateUser: !!state.user,
+      hasDevToken: !!state.devToken,
+      cookies: ctx.headers.cookie ? 'present' : 'missing',
+    });
 
     // Check if route needs protection
     if (!isProtectedRoute(ctx.path)) {
+      authDebug(`Route ${ctx.path} is public, skipping auth`);
       return next();
     }
 
     // Check if user is authenticated (either from dev-auth or session)
     let user: User | undefined = state.user;
 
+    authDebug(`Auth check for protected route`, {
+      path: ctx.path,
+      stateUserPresent: !!state.user,
+      stateUserEmail: state.user?.email,
+    });
+
     // If no user from dev-auth, check session
     if (!user && ctx.session?.user) {
       user = ctx.session.user;
+      authDebug(`Found user in session`, {
+        userId: user?.id,
+        userEmail: user?.email,
+      });
       if (user) {
         state.user = user;
       }
@@ -87,6 +138,13 @@ export function createAuthMiddleware(_config: AppConfig) {
 
     // If still no user, handle unauthenticated request
     if (!user) {
+      authDebug(`No authenticated user found`, {
+        path: ctx.path,
+        isApiRequest: ctx.path.startsWith('/api/'),
+        sessionExists: !!ctx.session,
+        sessionIsNew: ctx.session?.isNew,
+      });
+
       // Store the original URL for redirect after login
       if (ctx.session) {
         ctx.session.returnTo = ctx.originalUrl;
@@ -94,6 +152,7 @@ export function createAuthMiddleware(_config: AppConfig) {
 
       // For API requests, return 401
       if (ctx.path.startsWith('/api/')) {
+        authDebug(`Returning 401 for API request ${ctx.path}`);
         ctx.status = 401;
         ctx.body = {
           error: 'Unauthorized',
@@ -104,11 +163,13 @@ export function createAuthMiddleware(_config: AppConfig) {
 
       // For browser requests, redirect to login
       if (acceptsHtml(ctx)) {
+        authDebug(`Redirecting to login for browser request ${ctx.path}`);
         ctx.redirect('/auth/login');
         return;
       }
 
       // Default: 401 response
+      authDebug(`Returning 401 for non-browser request ${ctx.path}`);
       ctx.status = 401;
       ctx.body = {
         error: 'Unauthorized',
@@ -116,6 +177,11 @@ export function createAuthMiddleware(_config: AppConfig) {
       };
       return;
     }
+
+    authDebug(`User authenticated, continuing`, {
+      userId: user.id,
+      userEmail: user.email,
+    });
 
     // User is authenticated - continue
     await next();

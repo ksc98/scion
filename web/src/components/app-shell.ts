@@ -12,6 +12,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import './shared/nav.js';
 import './shared/header.js';
 import './shared/breadcrumb.js';
+import './shared/debug-panel.js';
 
 import type { User } from '../shared/types.js';
 
@@ -186,6 +187,9 @@ export class ScionApp extends LitElement {
           </div>
         </div>
       </main>
+
+      <!-- Debug Panel (only shows in debug mode) -->
+      <scion-debug-panel></scion-debug-panel>
     `;
   }
 

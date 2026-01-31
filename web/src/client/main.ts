@@ -22,6 +22,7 @@ import '../components/shared/nav.js';
 import '../components/shared/header.js';
 import '../components/shared/breadcrumb.js';
 import '../components/shared/status-badge.js';
+import '../components/shared/debug-panel.js';
 
 // Page components
 import '../components/pages/home.js';
@@ -52,6 +53,7 @@ async function init(): Promise<void> {
     customElements.whenDefined('scion-header'),
     customElements.whenDefined('scion-breadcrumb'),
     customElements.whenDefined('scion-status-badge'),
+    customElements.whenDefined('scion-debug-panel'),
     // Page components
     customElements.whenDefined('scion-page-home'),
     customElements.whenDefined('scion-page-groves'),

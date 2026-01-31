@@ -18,11 +18,32 @@ import { isEmailAuthorized } from '../middleware/auth.js';
  */
 type OAuthProvider = 'google' | 'github';
 
+/** Debug flag for auth routes */
+let authRoutesDebugEnabled = false;
+
+/**
+ * Debug logger for auth routes
+ */
+function authRoutesDebug(message: string, data?: Record<string, unknown>): void {
+  if (!authRoutesDebugEnabled) return;
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.log(`[AUTH-ROUTES ${timestamp}] ${message}`, JSON.stringify(data, null, 2));
+  } else {
+    console.log(`[AUTH-ROUTES ${timestamp}] ${message}`);
+  }
+}
+
 /**
  * Create authentication routes
  */
 export function createAuthRouter(config: AppConfig): Router {
   const router = new Router();
+
+  // Enable debug if config says so
+  if (config.debug) {
+    authRoutesDebugEnabled = true;
+  }
 
   // Google OAuth client (lazily initialized)
   let googleClient: OAuth2Client | null = null;
@@ -145,21 +166,37 @@ export function createAuthRouter(config: AppConfig): Router {
     const state = ctx.query.state as string | undefined;
     const error = ctx.query.error as string | undefined;
 
+    authRoutesDebug(`OAuth callback received`, {
+      provider,
+      hasCode: !!code,
+      hasState: !!state,
+      hasError: !!error,
+      sessionExists: !!ctx.session,
+      sessionOauthState: ctx.session?.oauthState ? 'present' : 'missing',
+    });
+
     // Check for OAuth errors
     if (error) {
       const errorDescription = (ctx.query.error_description as string) || 'Authentication failed';
+      authRoutesDebug(`OAuth error from provider`, { error, errorDescription });
       ctx.redirect(`/auth/error?message=${encodeURIComponent(errorDescription)}`);
       return;
     }
 
     // Verify code is present
     if (!code) {
+      authRoutesDebug(`Missing authorization code`);
       ctx.redirect('/auth/error?message=Missing+authorization+code');
       return;
     }
 
     // Verify state matches (CSRF protection)
     if (ctx.session?.oauthState !== state) {
+      authRoutesDebug(`State mismatch`, {
+        expectedState: ctx.session?.oauthState ? 'present' : 'missing',
+        receivedState: state ? 'present' : 'missing',
+        match: ctx.session?.oauthState === state,
+      });
       ctx.redirect('/auth/error?message=Invalid+state+parameter');
       return;
     }
@@ -172,6 +209,8 @@ export function createAuthRouter(config: AppConfig): Router {
     try {
       let user: User;
 
+      authRoutesDebug(`Exchanging code for tokens`, { provider });
+
       if (provider === 'google') {
         user = await handleGoogleCallback(code, config, getGoogleClient());
       } else if (provider === 'github') {
@@ -181,15 +220,33 @@ export function createAuthRouter(config: AppConfig): Router {
         return;
       }
 
+      authRoutesDebug(`User authenticated via OAuth`, {
+        userId: user.id,
+        userEmail: user.email,
+        userName: user.name,
+      });
+
       // Check if user's email domain is authorized
       if (!isEmailAuthorized(user.email, config.auth.authorizedDomains)) {
+        authRoutesDebug(`User email domain not authorized`, { email: user.email });
         ctx.redirect('/auth/error?message=Your+email+domain+is+not+authorized');
         return;
       }
 
       // Store user in session
+      authRoutesDebug(`Storing user in session`, {
+        sessionExists: !!ctx.session,
+        userEmail: user.email,
+      });
+
       if (ctx.session) {
         ctx.session.user = user;
+        authRoutesDebug(`User stored in session`, {
+          sessionUser: ctx.session.user?.email,
+          sessionKeys: Object.keys(ctx.session),
+        });
+      } else {
+        authRoutesDebug(`WARNING: No session available to store user!`);
       }
 
       // Also set user in state for immediate use
@@ -201,9 +258,17 @@ export function createAuthRouter(config: AppConfig): Router {
         delete ctx.session.returnTo;
       }
 
+      authRoutesDebug(`Redirecting after successful login`, {
+        returnTo,
+        sessionUserAfterSet: ctx.session?.user?.email,
+      });
+
       ctx.redirect(returnTo);
     } catch (err) {
       console.error('OAuth callback error:', err);
+      authRoutesDebug(`OAuth callback error`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
       const message = err instanceof Error ? err.message : 'Authentication failed';
       ctx.redirect(`/auth/error?message=${encodeURIComponent(message)}`);
     }
@@ -246,6 +311,75 @@ export function createAuthRouter(config: AppConfig): Router {
     }
 
     ctx.body = { user };
+  });
+
+  /**
+   * GET /auth/debug
+   * Debug endpoint showing current auth state (only available when debug mode is enabled)
+   */
+  router.get('/debug', async (ctx: Context) => {
+    // Only allow in debug mode
+    if (!config.debug) {
+      ctx.status = 404;
+      ctx.body = { error: 'Not found' };
+      return;
+    }
+
+    const cookieHeader = ctx.headers.cookie || '';
+    const cookies = cookieHeader.split(';').map((c) => {
+      const [name, ...rest] = c.trim().split('=');
+      return {
+        name,
+        valueLength: rest.join('=').length,
+        hasValue: rest.length > 0,
+      };
+    });
+
+    ctx.body = {
+      debug: true,
+      timestamp: new Date().toISOString(),
+      auth: {
+        stateUser: ctx.state.user
+          ? {
+              id: ctx.state.user.id,
+              email: ctx.state.user.email,
+              name: ctx.state.user.name,
+            }
+          : null,
+        sessionUser: ctx.session?.user
+          ? {
+              id: ctx.session.user.id,
+              email: ctx.session.user.email,
+              name: ctx.session.user.name,
+            }
+          : null,
+        devToken: ctx.state.devToken ? 'present' : 'absent',
+        devAuthEnabled: ctx.state.devAuthEnabled || false,
+      },
+      session: {
+        exists: !!ctx.session,
+        isNew: ctx.session?.isNew,
+        keys: ctx.session ? Object.keys(ctx.session) : [],
+        hasUser: !!ctx.session?.user,
+        hasReturnTo: !!ctx.session?.returnTo,
+        hasOauthState: !!ctx.session?.oauthState,
+      },
+      cookies: {
+        header: cookieHeader ? 'present' : 'missing',
+        count: cookies.length,
+        names: cookies.map((c) => c.name).filter(Boolean),
+        hasSessionCookie: cookieHeader.includes('scion_sess'),
+      },
+      config: {
+        production: config.production,
+        debug: config.debug,
+        baseUrl: config.baseUrl,
+        hubApiUrl: config.hubApiUrl,
+        hasGoogleOAuth: !!config.auth.googleClientId,
+        hasGitHubOAuth: !!config.auth.githubClientId,
+        authorizedDomains: config.auth.authorizedDomains,
+      },
+    };
   });
 
   /**

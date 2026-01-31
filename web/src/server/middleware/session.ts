@@ -5,10 +5,34 @@
  */
 
 import type Koa from 'koa';
+import type { Context, Next } from 'koa';
 import session from 'koa-session';
 
 import type { AppConfig } from '../config.js';
 import type { User } from '../../shared/types.js';
+
+/** Debug flag for session middleware */
+let sessionDebugEnabled = false;
+
+/**
+ * Enable or disable session debug logging
+ */
+export function setSessionDebug(enabled: boolean): void {
+  sessionDebugEnabled = enabled;
+}
+
+/**
+ * Debug logger for session middleware
+ */
+function sessionDebug(message: string, data?: Record<string, unknown>): void {
+  if (!sessionDebugEnabled) return;
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.log(`[SESSION ${timestamp}] ${message}`, JSON.stringify(data, null, 2));
+  } else {
+    console.log(`[SESSION ${timestamp}] ${message}`);
+  }
+}
 
 /**
  * Session data stored in the session
@@ -52,7 +76,8 @@ export interface SessionConfig {
  */
 export function getSessionConfig(config: AppConfig): SessionConfig {
   return {
-    key: 'scion:sess',
+    // Note: Cookie names cannot contain colons per RFC 6265
+    key: 'scion_sess',
     maxAge: config.session.maxAge,
     secure: config.production,
     httpOnly: true,
@@ -69,6 +94,11 @@ export function getSessionConfig(config: AppConfig): SessionConfig {
  * @returns Session middleware
  */
 export function createSessionMiddleware(app: Koa, config: AppConfig): Koa.Middleware {
+  // Enable debug if config says so
+  if (config.debug) {
+    setSessionDebug(true);
+  }
+
   // Validate session secret in production
   if (config.production && !config.session.secret) {
     throw new Error('SESSION_SECRET must be set in production');
@@ -79,8 +109,16 @@ export function createSessionMiddleware(app: Koa, config: AppConfig): Koa.Middle
 
   const sessionConfig = getSessionConfig(config);
 
+  sessionDebug('Session middleware configured', {
+    key: sessionConfig.key,
+    maxAge: sessionConfig.maxAge,
+    secure: sessionConfig.secure,
+    sameSite: sessionConfig.sameSite,
+    secretLength: config.session.secret?.length || 0,
+  });
+
   // Create session middleware with koa-session options
-  return session(
+  const sessionMiddleware = session(
     {
       key: sessionConfig.key,
       maxAge: sessionConfig.maxAge,
@@ -88,11 +126,44 @@ export function createSessionMiddleware(app: Koa, config: AppConfig): Koa.Middle
       signed: sessionConfig.signed,
       secure: sessionConfig.secure,
       sameSite: sessionConfig.sameSite,
-      // Disable auto commit to allow manual session management
+      // Enable auto commit
       autoCommit: true,
       // Renew session if more than half the maxAge has passed
       renew: true,
     },
     app
   );
+
+  // Wrap with debug logging
+  return async function sessionMiddlewareWithDebug(ctx: Context, next: Next) {
+    const cookieHeader = ctx.headers.cookie || '';
+    const hasSessionCookie = cookieHeader.includes(sessionConfig.key);
+
+    sessionDebug(`Session middleware: ${ctx.method} ${ctx.path}`, {
+      hasSessionCookie,
+      cookieNames: cookieHeader
+        .split(';')
+        .map((c) => c.trim().split('=')[0])
+        .filter(Boolean),
+    });
+
+    // Run the actual session middleware
+    await sessionMiddleware(ctx, async () => {
+      sessionDebug(`Session loaded`, {
+        path: ctx.path,
+        isNew: ctx.session?.isNew,
+        hasUser: !!ctx.session?.user,
+        userEmail: ctx.session?.user?.email,
+        keys: ctx.session ? Object.keys(ctx.session) : [],
+      });
+
+      await next();
+
+      sessionDebug(`Session after handler`, {
+        path: ctx.path,
+        hasUser: !!ctx.session?.user,
+        userEmail: ctx.session?.user?.email,
+      });
+    });
+  };
 }
