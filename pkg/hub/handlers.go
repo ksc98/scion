@@ -231,6 +231,21 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve template if specified - the client may pass either a template ID or name
+	var resolvedTemplate *store.Template
+	if req.Template != "" {
+		resolvedTemplate, err = s.resolveTemplate(ctx, req.Template, req.GroveID)
+		if err != nil && err != store.ErrNotFound {
+			writeErrorFromErr(w, err, "")
+			return
+		}
+		// If template was requested but not found, return an error
+		if resolvedTemplate == nil {
+			NotFound(w, "Template")
+			return
+		}
+	}
+
 	// Create agent
 	agent := &store.Agent{
 		ID:            api.NewUUID(),
@@ -255,18 +270,22 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 			Image:   req.Config.Image,
 			Env:     req.Config.Env,
 			Model:   req.Config.Model,
-			Harness: req.Template,
+			Harness: s.getHarnessFromTemplate(resolvedTemplate, req.Template),
 			Task:    req.Task,
 		}
 	} else {
 		agent.Detached = true
 		// Store task even when no config override is provided
-		if req.Task != "" {
-			agent.AppliedConfig = &store.AgentAppliedConfig{
-				Harness: req.Template,
-				Task:    req.Task,
-			}
+		agent.AppliedConfig = &store.AgentAppliedConfig{
+			Harness: s.getHarnessFromTemplate(resolvedTemplate, req.Template),
+			Task:    req.Task,
 		}
+	}
+
+	// Populate template ID and hash if template was resolved
+	if resolvedTemplate != nil && agent.AppliedConfig != nil {
+		agent.AppliedConfig.TemplateID = resolvedTemplate.ID
+		agent.AppliedConfig.TemplateHash = resolvedTemplate.ContentHash
 	}
 
 	if err := s.store.CreateAgent(ctx, agent); err != nil {
@@ -1116,6 +1135,21 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 		return
 	}
 
+	// Resolve template if specified - the client may pass either a template ID or name
+	var resolvedTemplate *store.Template
+	if req.Template != "" {
+		resolvedTemplate, err = s.resolveTemplate(ctx, req.Template, groveID)
+		if err != nil && err != store.ErrNotFound {
+			writeErrorFromErr(w, err, "")
+			return
+		}
+		// If template was requested but not found, return an error
+		if resolvedTemplate == nil {
+			NotFound(w, "Template")
+			return
+		}
+	}
+
 	// Create agent
 	agent := &store.Agent{
 		ID:            api.NewUUID(),
@@ -1140,18 +1174,22 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 			Image:   req.Config.Image,
 			Env:     req.Config.Env,
 			Model:   req.Config.Model,
-			Harness: req.Template,
+			Harness: s.getHarnessFromTemplate(resolvedTemplate, req.Template),
 			Task:    req.Task,
 		}
 	} else {
 		agent.Detached = true
 		// Store task even when no config override is provided
-		if req.Task != "" {
-			agent.AppliedConfig = &store.AgentAppliedConfig{
-				Harness: req.Template,
-				Task:    req.Task,
-			}
+		agent.AppliedConfig = &store.AgentAppliedConfig{
+			Harness: s.getHarnessFromTemplate(resolvedTemplate, req.Template),
+			Task:    req.Task,
 		}
+	}
+
+	// Populate template ID and hash if template was resolved
+	if resolvedTemplate != nil && agent.AppliedConfig != nil {
+		agent.AppliedConfig.TemplateID = resolvedTemplate.ID
+		agent.AppliedConfig.TemplateHash = resolvedTemplate.ContentHash
 	}
 
 	if err := s.store.CreateAgent(ctx, agent); err != nil {
@@ -2842,6 +2880,45 @@ func (s *Server) handleHostSecretByKey(w http.ResponseWriter, r *http.Request, h
 // ============================================================================
 // Helpers
 // ============================================================================
+
+// resolveTemplate looks up a template by ID or name/slug.
+// It tries: 1) by ID, 2) by slug in grove scope, 3) by slug in global scope.
+// Returns nil if not found, or an error for actual failures.
+func (s *Server) resolveTemplate(ctx context.Context, templateRef, groveID string) (*store.Template, error) {
+	// Try looking up by ID first (the CLI typically resolves names to IDs)
+	template, err := s.store.GetTemplate(ctx, templateRef)
+	if err != nil && err != store.ErrNotFound {
+		return nil, err
+	}
+	if template != nil {
+		return template, nil
+	}
+
+	// Try by slug/name within grove scope
+	template, err = s.store.GetTemplateBySlug(ctx, templateRef, "grove", groveID)
+	if err != nil && err != store.ErrNotFound {
+		return nil, err
+	}
+	if template != nil {
+		return template, nil
+	}
+
+	// Try global scope
+	template, err = s.store.GetTemplateBySlug(ctx, templateRef, "global", "")
+	if err != nil && err != store.ErrNotFound {
+		return nil, err
+	}
+	return template, nil
+}
+
+// getHarnessFromTemplate returns the harness type from a resolved template,
+// or the fallback value if no template was resolved.
+func (s *Server) getHarnessFromTemplate(template *store.Template, fallback string) string {
+	if template != nil && template.Harness != "" {
+		return template.Harness
+	}
+	return fallback
+}
 
 // resolveRuntimeHost determines which runtime host should run the agent.
 // It checks the explicitly specified host, the grove's default, or returns an error

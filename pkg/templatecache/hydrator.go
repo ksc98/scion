@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"syscall"
@@ -113,7 +114,7 @@ func (h *Hydrator) Hydrate(ctx context.Context, templateRef string) (string, err
 		return "", fmt.Errorf("template not found: %s", templateRef)
 	}
 
-	// Step 2: Check if already cached with matching content hash
+	// Step 2: Check if already cached with matching content hash (fast path)
 	if template.ContentHash != "" {
 		if cachedPath, ok := h.cache.Get(template.ID, template.ContentHash); ok {
 			return cachedPath, nil
@@ -126,7 +127,7 @@ func (h *Hydrator) Hydrate(ctx context.Context, templateRef string) (string, err
 		}
 	}
 
-	// Step 3: Request download URLs from Hub
+	// Step 3: Request download URLs from Hub (includes per-file hashes)
 	downloadResp, err := h.hubClient.Templates().RequestDownloadURLs(ctx, template.ID)
 	if err != nil {
 		if IsHubConnectivityError(err) {
@@ -139,15 +140,45 @@ func (h *Hydrator) Hydrate(ctx context.Context, templateRef string) (string, err
 		return "", fmt.Errorf("template has no files: %s", templateRef)
 	}
 
-	// Step 4: Download all files
-	files := make(map[string][]byte)
-	for _, fileInfo := range downloadResp.Files {
-		content, err := h.hubClient.Templates().DownloadFile(ctx, fileInfo.URL)
+	// Step 4: Check for older cached version for incremental download
+	var cachedHashes map[string]string
+	var oldCachePath string
+	if oldPath, _, hasCachedVersion := h.cache.GetAnyVersion(template.ID); hasCachedVersion {
+		oldCachePath = oldPath
+		cachedHashes, err = h.cache.GetFileHashes(oldPath)
 		if err != nil {
-			if IsHubConnectivityError(err) {
-				return "", &HubConnectivityError{Cause: err}
+			// Can't read cached hashes, fall back to full download
+			cachedHashes = nil
+		}
+	}
+
+	// Step 5: Download files (only changed ones if we have a cached version)
+	files := make(map[string][]byte)
+	var downloadedCount, skippedCount int
+
+	for _, fileInfo := range downloadResp.Files {
+		// Check if file is unchanged from cached version
+		if cachedHashes != nil {
+			if cachedHash, exists := cachedHashes[fileInfo.Path]; exists && cachedHash == fileInfo.Hash {
+				// File unchanged, read from cache instead of downloading
+				cachedFilePath := oldCachePath + "/" + fileInfo.Path
+				content, readErr := readFileFromPath(cachedFilePath)
+				if readErr == nil {
+					files[fileInfo.Path] = content
+					skippedCount++
+					continue
+				}
+				// If read fails, fall through to download
 			}
-			return "", fmt.Errorf("failed to download file %s: %w", fileInfo.Path, err)
+		}
+
+		// Download the file
+		content, dlErr := h.hubClient.Templates().DownloadFile(ctx, fileInfo.URL)
+		if dlErr != nil {
+			if IsHubConnectivityError(dlErr) {
+				return "", &HubConnectivityError{Cause: dlErr}
+			}
+			return "", fmt.Errorf("failed to download file %s: %w", fileInfo.Path, dlErr)
 		}
 
 		// Verify hash if provided
@@ -160,21 +191,28 @@ func (h *Hydrator) Hydrate(ctx context.Context, templateRef string) (string, err
 		}
 
 		files[fileInfo.Path] = content
+		downloadedCount++
 	}
 
-	// Step 5: Store in cache
+	// Log incremental sync stats if we used cached files
+	if skippedCount > 0 {
+		// Incremental download succeeded
+		_ = skippedCount // Stats available for debugging if needed
+	}
+
+	// Step 6: Store in cache
 	contentHash := template.ContentHash
 	if contentHash == "" {
 		// Compute content hash if not provided
 		contentHash = computeContentHash(files)
 	}
 
-	cachedPath, err := h.cache.Store(template.ID, contentHash, files)
-	if err != nil {
-		return "", fmt.Errorf("failed to cache template: %w", err)
+	newCachePath, storeErr := h.cache.Store(template.ID, contentHash, files)
+	if storeErr != nil {
+		return "", fmt.Errorf("failed to cache template: %w", storeErr)
 	}
 
-	return cachedPath, nil
+	return newCachePath, nil
 }
 
 // HydrateWithHash fetches a template, using the provided hash for cache lookup.
@@ -250,4 +288,9 @@ func computeContentHash(files map[string][]byte) string {
 	}
 
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// readFileFromPath reads the entire contents of a file.
+func readFileFromPath(path string) ([]byte, error) {
+	return os.ReadFile(path)
 }

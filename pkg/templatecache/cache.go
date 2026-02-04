@@ -4,6 +4,8 @@
 package templatecache
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -141,6 +143,64 @@ func (c *Cache) GetByHash(contentHash string) (string, bool) {
 	}
 
 	return templatePath, true
+}
+
+// GetAnyVersion retrieves any cached version of a template by ID.
+// Unlike Get, this returns the cached version even if the content hash differs.
+// Returns the path, the cached content hash, and true if any version is cached.
+func (c *Cache) GetAnyVersion(templateID string) (string, string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	entry, ok := c.index.Entries[templateID]
+	if !ok {
+		return "", "", false
+	}
+
+	// Build path and verify it exists
+	templatePath := filepath.Join(c.basePath, entry.ContentHash)
+	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
+		return "", "", false
+	}
+
+	return templatePath, entry.ContentHash, true
+}
+
+// GetFileHashes returns a map of file paths to their hashes for a cached template.
+// This reads the actual files from the cache directory and computes their hashes.
+func (c *Cache) GetFileHashes(templatePath string) (map[string]string, error) {
+	hashes := make(map[string]string)
+
+	err := filepath.Walk(templatePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		// Get relative path
+		relPath, err := filepath.Rel(templatePath, path)
+		if err != nil {
+			return err
+		}
+
+		// Read file and compute hash
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		hash := sha256.Sum256(content)
+		hashes[relPath] = "sha256:" + hex.EncodeToString(hash[:])
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return hashes, nil
 }
 
 // Store stores template files in the cache.

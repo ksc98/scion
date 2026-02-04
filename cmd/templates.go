@@ -290,41 +290,105 @@ func syncTemplateToHub(hubCtx *HubContext, name, localPath, scope, harnessType s
 		}
 	}
 
-	// Create template with file upload URLs
-	fmt.Printf("Creating/updating template '%s' in Hub...\n", name)
-	createReq := &hubclient.CreateTemplateRequest{
+	// Check if a template with this name already exists in the same scope
+	var templateID string
+	existingResp, err := hubCtx.Client.Templates().List(ctx, &hubclient.ListTemplatesOptions{
 		Name:    name,
-		Harness: harnessType,
 		Scope:   scope,
 		GroveID: groveID,
-	}
-
-	resp, err := hubCtx.Client.Templates().Create(ctx, createReq)
+		Status:  "active",
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create template: %w", err)
+		return fmt.Errorf("failed to check for existing template: %w", err)
 	}
 
-	templateID := resp.Template.ID
-	fmt.Printf("Template created with ID: %s\n", templateID)
+	// Find exact name match
+	var existingTemplate *hubclient.Template
+	for i := range existingResp.Templates {
+		if existingResp.Templates[i].Name == name {
+			existingTemplate = &existingResp.Templates[i]
+			break
+		}
+	}
 
-	// Request upload URLs
-	fmt.Println("Requesting upload URLs...")
-	uploadResp, err := hubCtx.Client.Templates().RequestUploadURLs(ctx, templateID, fileReqs)
+	// Build a map of local files by path for easy lookup
+	localFileMap := make(map[string]*hubclient.FileInfo)
+	for i := range files {
+		localFileMap[files[i].Path] = &files[i]
+	}
+
+	// Track which files need to be uploaded
+	var filesToUpload []hubclient.FileUploadRequest
+
+	if existingTemplate != nil {
+		templateID = existingTemplate.ID
+
+		// Fetch existing file manifest to compare hashes
+		fmt.Printf("Checking for changes in template '%s'...\n", name)
+		downloadResp, err := hubCtx.Client.Templates().RequestDownloadURLs(ctx, templateID)
+		if err != nil {
+			return fmt.Errorf("failed to get existing template manifest: %w", err)
+		}
+
+		// Build map of remote file hashes
+		remoteHashes := make(map[string]string)
+		for _, f := range downloadResp.Files {
+			remoteHashes[f.Path] = f.Hash
+		}
+
+		// Compare local vs remote - find changed/new files
+		for _, localFile := range files {
+			remoteHash, exists := remoteHashes[localFile.Path]
+			if !exists || remoteHash != localFile.Hash {
+				filesToUpload = append(filesToUpload, hubclient.FileUploadRequest{
+					Path: localFile.Path,
+					Size: localFile.Size,
+				})
+			}
+		}
+
+		// Check if anything changed
+		if len(filesToUpload) == 0 {
+			fmt.Printf("Template '%s' is already up to date.\n", name)
+			fmt.Printf("  ID: %s\n", templateID)
+			fmt.Printf("  Content Hash: %s\n", existingTemplate.ContentHash)
+			return nil
+		}
+
+		fmt.Printf("Found %d changed file(s), updating template...\n", len(filesToUpload))
+	} else {
+		// Create new template - upload all files
+		fmt.Printf("Creating template '%s' in Hub...\n", name)
+		createReq := &hubclient.CreateTemplateRequest{
+			Name:    name,
+			Harness: harnessType,
+			Scope:   scope,
+			GroveID: groveID,
+		}
+
+		resp, err := hubCtx.Client.Templates().Create(ctx, createReq)
+		if err != nil {
+			return fmt.Errorf("failed to create template: %w", err)
+		}
+
+		templateID = resp.Template.ID
+		fmt.Printf("Template created with ID: %s\n", templateID)
+
+		// All files need to be uploaded for new templates
+		filesToUpload = fileReqs
+	}
+
+	// Request upload URLs only for files that need uploading
+	fmt.Printf("Requesting upload URLs for %d file(s)...\n", len(filesToUpload))
+	uploadResp, err := hubCtx.Client.Templates().RequestUploadURLs(ctx, templateID, filesToUpload)
 	if err != nil {
 		return fmt.Errorf("failed to get upload URLs: %w", err)
 	}
 
 	// Upload files
-	fmt.Printf("Uploading %d files...\n", len(uploadResp.UploadURLs))
+	fmt.Printf("Uploading %d file(s)...\n", len(uploadResp.UploadURLs))
 	for _, urlInfo := range uploadResp.UploadURLs {
-		// Find matching file
-		var fileInfo *hubclient.FileInfo
-		for i := range files {
-			if files[i].Path == urlInfo.Path {
-				fileInfo = &files[i]
-				break
-			}
-		}
+		fileInfo := localFileMap[urlInfo.Path]
 		if fileInfo == nil {
 			fmt.Printf("  Warning: no matching file for %s\n", urlInfo.Path)
 			continue
