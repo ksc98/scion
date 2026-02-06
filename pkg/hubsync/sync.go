@@ -713,7 +713,7 @@ func cleanupGroveBrokerCredentials(grovePath string) {
 		return
 	}
 
-	// Check if the file contains hostId or brokerToken
+	// Check if the file contains brokerId or brokerToken
 	content := string(data)
 	if !strings.Contains(content, "brokerId") && !strings.Contains(content, "brokerToken") {
 		return

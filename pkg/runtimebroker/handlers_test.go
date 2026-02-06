@@ -53,7 +53,7 @@ func (m *mockManager) Watch(ctx context.Context, agentID string) (<-chan api.Sta
 
 func newTestServer() *Server {
 	cfg := DefaultServerConfig()
-	cfg.BrokerID = "test-host-id"
+	cfg.BrokerID = "test-broker-id"
 	cfg.BrokerName = "test-host"
 
 	mgr := &mockManager{
@@ -135,8 +135,8 @@ func TestHostInfo(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if resp.BrokerID != "test-host-id" {
-		t.Errorf("expected hostId 'test-host-id', got '%s'", resp.BrokerID)
+	if resp.BrokerID != "test-broker-id" {
+		t.Errorf("expected brokerId 'test-broker-id', got '%s'", resp.BrokerID)
 	}
 
 	if resp.Mode != "connected" {
@@ -293,7 +293,7 @@ func (m *envCapturingManager) Start(ctx context.Context, opts api.StartOptions) 
 
 func newTestServerWithEnvCapture() (*Server, *envCapturingManager) {
 	cfg := DefaultServerConfig()
-	cfg.BrokerID = "test-host-id"
+	cfg.BrokerID = "test-broker-id"
 	cfg.BrokerName = "test-host"
 	cfg.Debug = true
 

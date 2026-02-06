@@ -218,7 +218,7 @@ func (s *BrokerAuthService) CreateHostRegistration(ctx context.Context, req Crea
 // Returns the shared secret for HMAC authentication.
 func (s *BrokerAuthService) CompleteHostJoin(ctx context.Context, req BrokerJoinRequest, hubEndpoint string) (*BrokerJoinResponse, error) {
 	if req.BrokerID == "" {
-		return nil, errors.New("hostId is required")
+		return nil, errors.New("brokerId is required")
 	}
 	if req.JoinToken == "" {
 		return nil, errors.New("joinToken is required")
@@ -298,7 +298,7 @@ func (s *BrokerAuthService) CompleteHostJoin(ctx context.Context, req BrokerJoin
 // Returns the base64-encoded secret key.
 func (s *BrokerAuthService) GenerateAndStoreSecret(ctx context.Context, brokerID string) (string, error) {
 	if brokerID == "" {
-		return "", errors.New("hostId is required")
+		return "", errors.New("brokerId is required")
 	}
 
 	// Check if host already has a secret

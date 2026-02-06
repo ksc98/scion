@@ -225,9 +225,9 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve the runtime broker
-	runtimeBrokerID, err := s.resolveRuntimeHost(ctx, w, req.RuntimeBrokerID, grove)
+	runtimeBrokerID, err := s.resolveRuntimeBroker(ctx, w, req.RuntimeBrokerID, grove)
 	if err != nil {
-		// Error response already written by resolveRuntimeHost
+		// Error response already written by resolveRuntimeBroker
 		return
 	}
 
@@ -838,10 +838,10 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 
 	if req.BrokerID != "" {
 		// NEW FLOW: Link to existing host registered via two-phase /hosts + /brokers/join
-		existingHost, err := s.store.GetRuntimeBroker(ctx, req.BrokerID)
+		existingBroker, err := s.store.GetRuntimeBroker(ctx, req.BrokerID)
 		if err != nil {
 			if err == store.ErrNotFound {
-				ValidationError(w, "hostId not found: host must be registered via POST /brokers and /brokers/join first", map[string]interface{}{
+				ValidationError(w, "brokerId not found: broker must be registered via POST /brokers and /brokers/join first", map[string]interface{}{
 					"field":  "brokerId",
 					"brokerId": req.BrokerID,
 				})
@@ -850,7 +850,7 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 			writeErrorFromErr(w, err, "")
 			return
 		}
-		broker = existingHost
+		broker = existingBroker
 
 		// Add as grove contributor
 		contrib := &store.GroveContributor{
@@ -878,7 +878,7 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 		// No secret returned - host already has credentials from /brokers/join
 	} else if req.Broker != nil {
 		// DEPRECATED FLOW: Embedded host registration (creates host and generates secret)
-		util.Debugf("Warning: embedded Host field in grove registration is deprecated. Use two-phase registration: POST /brokers + POST /brokers/join, then pass hostId")
+		util.Debugf("Warning: embedded Broker field in grove registration is deprecated. Use two-phase registration: POST /brokers + POST /brokers/join, then pass brokerId")
 
 		brokerID := req.Broker.ID
 
@@ -887,7 +887,7 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 		var err error
 
 		if brokerID != "" {
-			existingHost, err = s.store.GetRuntimeBroker(ctx, brokerID)
+			existingBroker, err = s.store.GetRuntimeBroker(ctx, brokerID)
 			if err != nil && err != store.ErrNotFound {
 				writeErrorFromErr(w, err, "")
 				return
@@ -895,17 +895,17 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// If not found by ID, try to find by name (prevents duplicate brokers with same hostname)
-		if existingHost == nil && req.Broker.Name != "" {
-			existingHost, err = s.store.GetRuntimeBrokerByName(ctx, req.Broker.Name)
+		if existingBroker == nil && req.Broker.Name != "" {
+			existingBroker, err = s.store.GetRuntimeBrokerByName(ctx, req.Broker.Name)
 			if err != nil && err != store.ErrNotFound {
 				writeErrorFromErr(w, err, "")
 				return
 			}
 		}
 
-		if existingHost != nil {
+		if existingBroker != nil {
 			// Update existing host
-			broker = existingHost
+			broker = existingBroker
 			broker.Name = req.Broker.Name
 			broker.Slug = api.Slugify(req.Broker.Name)
 			broker.Version = req.Broker.Version
@@ -994,7 +994,7 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, RegisterGroveResponse{
 		Grove:     grove,
-		Host:      broker,
+		Broker:    broker,
 		Created:   created,
 		BrokerToken: brokerToken,
 		SecretKey: secretKey,
@@ -1211,9 +1211,9 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 	}
 
 	// Resolve the runtime broker
-	runtimeBrokerID, err := s.resolveRuntimeHost(ctx, w, req.RuntimeBrokerID, grove)
+	runtimeBrokerID, err := s.resolveRuntimeBroker(ctx, w, req.RuntimeBrokerID, grove)
 	if err != nil {
-		// Error response already written by resolveRuntimeHost
+		// Error response already written by resolveRuntimeBroker
 		return
 	}
 
@@ -1640,23 +1640,23 @@ func (s *Server) listRuntimeHosts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Build a map of hostId -> localPath for quick lookup
-		hostLocalPaths := make(map[string]string)
+		// Build a map of brokerId -> localPath for quick lookup
+		brokerLocalPaths := make(map[string]string)
 		for _, c := range contributors {
-			hostLocalPaths[c.BrokerID] = c.LocalPath
+			brokerLocalPaths[c.BrokerID] = c.LocalPath
 		}
 
-		// Build extended host list with contributor data
-		extendedHosts := make([]RuntimeBrokerWithContributor, 0, len(result.Items))
+		// Build extended broker list with contributor data
+		extendedBrokers := make([]RuntimeBrokerWithContributor, 0, len(result.Items))
 		for _, broker := range result.Items {
-			extendedHosts = append(extendedHosts, RuntimeBrokerWithContributor{
+			extendedBrokers = append(extendedBrokers, RuntimeBrokerWithContributor{
 				RuntimeBroker: broker,
-				LocalPath:   hostLocalPaths[broker.ID],
+				LocalPath:   brokerLocalPaths[broker.ID],
 			})
 		}
 
 		writeJSON(w, http.StatusOK, ListRuntimeBrokersWithContributorResponse{
-			Hosts:      extendedHosts,
+			Brokers:    extendedBrokers,
 			NextCursor: result.NextCursor,
 			TotalCount: result.TotalCount,
 		})
@@ -1664,7 +1664,7 @@ func (s *Server) listRuntimeHosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, ListRuntimeBrokersResponse{
-		Hosts:      result.Items,
+		Brokers:    result.Items,
 		NextCursor: result.NextCursor,
 		TotalCount: result.TotalCount,
 	})
@@ -2758,7 +2758,7 @@ func (s *Server) handleGroveSecretByKey(w http.ResponseWriter, r *http.Request, 
 // ============================================================================
 
 // handleGroveContributors handles contributor operations for a grove.
-// Path: /api/v1/groves/{groveId}/contributors[/{hostId}]
+// Path: /api/v1/groves/{groveId}/contributors[/{brokerId}]
 func (s *Server) handleGroveContributors(w http.ResponseWriter, r *http.Request, groveID, subPath string) {
 	ctx := r.Context()
 
@@ -2786,7 +2786,7 @@ func (s *Server) handleGroveContributors(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// subPath is the hostId - resource endpoint
+	// subPath is the brokerId - resource endpoint
 	brokerID := subPath
 	switch r.Method {
 	case http.MethodDelete:
@@ -2822,7 +2822,7 @@ func (s *Server) addGroveContributor(w http.ResponseWriter, r *http.Request, gro
 	}
 
 	if req.BrokerID == "" {
-		ValidationError(w, "hostId is required", nil)
+		ValidationError(w, "brokerId is required", nil)
 		return
 	}
 
@@ -2830,7 +2830,7 @@ func (s *Server) addGroveContributor(w http.ResponseWriter, r *http.Request, gro
 	broker, err := s.store.GetRuntimeBroker(ctx, req.BrokerID)
 	if err != nil {
 		if err == store.ErrNotFound {
-			ValidationError(w, "hostId not found", map[string]interface{}{
+			ValidationError(w, "brokerId not found", map[string]interface{}{
 				"field":  "brokerId",
 				"brokerId": req.BrokerID,
 			})
@@ -3137,7 +3137,7 @@ func (s *Server) getHarnessFromTemplate(template *store.Template, fallback strin
 	return fallback
 }
 
-// resolveRuntimeHost determines which runtime broker should run the agent.
+// resolveRuntimeBroker determines which runtime broker should run the agent.
 // Priority order:
 //  1. Explicitly specified host (requestedBrokerID) - verified to be a contributor
 //  2. Grove's default runtime broker - verified to be available (online)
@@ -3145,7 +3145,7 @@ func (s *Server) getHarnessFromTemplate(template *store.Template, fallback strin
 //  4. Multiple contributors with online hosts - returns error requiring explicit selection
 //  5. No contributors - returns error
 // Returns the runtime broker ID or an error (after writing the HTTP error response).
-func (s *Server) resolveRuntimeHost(ctx context.Context, w http.ResponseWriter, requestedBrokerID string, grove *store.Grove) (string, error) {
+func (s *Server) resolveRuntimeBroker(ctx context.Context, w http.ResponseWriter, requestedBrokerID string, grove *store.Grove) (string, error) {
 	// Get ALL contributors for this grove (regardless of status)
 	allContributors, err := s.store.GetGroveContributors(ctx, grove.ID)
 	if err != nil {
@@ -3154,15 +3154,15 @@ func (s *Server) resolveRuntimeHost(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	// Get available (online) hosts for fallback logic
-	availableHosts, err := s.getAvailableHostsForGrove(ctx, grove.ID)
+	availableBrokers, err := s.getAvailableBrokersForGrove(ctx, grove.ID)
 	if err != nil {
 		writeErrorFromErr(w, err, "")
 		return "", err
 	}
 
 	// Convert to summary for error responses
-	brokerSummaries := make([]RuntimeBrokerSummary, len(availableHosts))
-	for i, h := range availableHosts {
+	brokerSummaries := make([]RuntimeBrokerSummary, len(availableBrokers))
+	for i, h := range availableBrokers {
 		brokerSummaries[i] = RuntimeBrokerSummary{
 			ID:     h.ID,
 			Name:   h.Name,
@@ -3191,13 +3191,13 @@ func (s *Server) resolveRuntimeHost(ctx context.Context, w http.ResponseWriter, 
 	// Case 2: Use grove's default runtime broker (must be online)
 	if grove.DefaultRuntimeBrokerID != "" {
 		// Check if the default host is still available
-		for _, h := range availableHosts {
+		for _, h := range availableBrokers {
 			if h.ID == grove.DefaultRuntimeBrokerID {
 				return grove.DefaultRuntimeBrokerID, nil
 			}
 		}
 		// Default host is not available
-		if len(availableHosts) > 0 {
+		if len(availableBrokers) > 0 {
 			NoRuntimeHost(w, "Default runtime broker is unavailable; specify an alternative", brokerSummaries)
 		} else {
 			NoRuntimeHost(w, "Default runtime broker is unavailable and no alternatives found", brokerSummaries)
@@ -3213,7 +3213,7 @@ func (s *Server) resolveRuntimeHost(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	// Case 4: Multiple contributors - require explicit selection from online hosts
-	switch len(availableHosts) {
+	switch len(availableBrokers) {
 	case 0:
 		NoRuntimeHost(w, "No runtime brokers available for this grove; register a runtime broker first", brokerSummaries)
 		return "", store.ErrNotFound
@@ -3224,8 +3224,8 @@ func (s *Server) resolveRuntimeHost(ctx context.Context, w http.ResponseWriter, 
 	}
 }
 
-// getAvailableHostsForGrove returns online runtime brokers that are contributors to the grove.
-func (s *Server) getAvailableHostsForGrove(ctx context.Context, groveID string) ([]store.RuntimeBroker, error) {
+// getAvailableBrokersForGrove returns online runtime brokers that are contributors to the grove.
+func (s *Server) getAvailableBrokersForGrove(ctx context.Context, groveID string) ([]store.RuntimeBroker, error) {
 	// Get contributors for this grove
 	contributors, err := s.store.GetGroveContributors(ctx, groveID)
 	if err != nil {
@@ -3241,10 +3241,10 @@ func (s *Server) getAvailableHostsForGrove(ctx context.Context, groveID string) 
 				continue // Skip hosts we can't fetch
 			}
 			if broker.Status == store.BrokerStatusOnline {
-				availableHosts = append(availableHosts, *broker)
+				availableBrokers = append(availableBrokers, *broker)
 			}
 		}
 	}
 
-	return availableHosts, nil
+	return availableBrokers, nil
 }

@@ -496,7 +496,7 @@ func runHubRegister(cmd *cobra.Command, args []string) error {
 	if credErr == nil && existingCreds != nil && existingCreds.BrokerID != "" && !hubForceRegister {
 		// Existing credentials found - verify they're still valid
 		brokerID = existingCreds.BrokerID
-		fmt.Printf("Using existing broker credentials (hostId: %s)\n", brokerID)
+		fmt.Printf("Using existing broker credentials (brokerId: %s)\n", brokerID)
 
 		// Verify the broker still exists on the hub
 		_, err := client.RuntimeBrokers().Get(ctx, brokerID)

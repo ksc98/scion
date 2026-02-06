@@ -91,7 +91,7 @@ func (s *Server) handleBrokerJoin(w http.ResponseWriter, r *http.Request) {
 
 	// Validate required fields
 	if req.BrokerID == "" {
-		ValidationError(w, "hostId is required", map[string]interface{}{
+		ValidationError(w, "brokerId is required", map[string]interface{}{
 			"field": "brokerId",
 		})
 		return

@@ -227,7 +227,7 @@ func TestStore_LoadValidation(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name:      "missing hostId",
+			name:      "missing brokerId",
 			content:   `{"secretKey": "abc"}`,
 			expectErr: true,
 		},
@@ -332,7 +332,7 @@ func TestStore_JSONFormat(t *testing.T) {
 	}
 
 	if parsed["brokerId"] != "test-host-id" {
-		t.Errorf("hostId mismatch in JSON: %v", parsed["brokerId"])
+		t.Errorf("brokerId mismatch in JSON: %v", parsed["brokerId"])
 	}
 	if parsed["secretKey"] != "dGVzdC1zZWNyZXQ=" {
 		t.Errorf("secretKey mismatch in JSON: %v", parsed["secretKey"])

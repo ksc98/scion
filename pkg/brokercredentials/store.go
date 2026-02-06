@@ -101,7 +101,7 @@ func (s *Store) Load() (*BrokerCredentials, error) {
 
 	// Validate required fields
 	if creds.BrokerID == "" {
-		return nil, fmt.Errorf("%w: missing hostId", ErrInvalidCredentials)
+		return nil, fmt.Errorf("%w: missing brokerId", ErrInvalidCredentials)
 	}
 	if creds.SecretKey == "" {
 		return nil, fmt.Errorf("%w: missing secretKey", ErrInvalidCredentials)
@@ -119,7 +119,7 @@ func (s *Store) Save(creds *BrokerCredentials) error {
 		return errors.New("credentials cannot be nil")
 	}
 	if creds.BrokerID == "" {
-		return errors.New("hostId is required")
+		return errors.New("brokerId is required")
 	}
 	if creds.SecretKey == "" {
 		return errors.New("secretKey is required")

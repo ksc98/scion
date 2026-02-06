@@ -508,7 +508,7 @@ func TestUpdateHubSettingsGlobal(t *testing.T) {
 		}
 	})
 
-	t.Run("save hub hostId to global settings", func(t *testing.T) {
+	t.Run("save hub brokerId to global settings", func(t *testing.T) {
 		err := UpdateSetting(globalScionDir, "hub.brokerId", "host-uuid-123", true)
 		if err != nil {
 			t.Fatalf("UpdateSetting failed: %v", err)

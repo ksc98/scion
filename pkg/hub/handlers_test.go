@@ -780,7 +780,7 @@ func TestGroveRegisterWithHostID(t *testing.T) {
 		t.Fatalf("failed to create runtime broker: %v", err)
 	}
 
-	// Now register grove with hostId (Phase 3)
+	// Now register grove with brokerId (Phase 3)
 	body := map[string]interface{}{
 		"name":      "Two Phase Grove",
 		"gitRemote": "https://github.com/test/twophase-grove",
@@ -837,7 +837,7 @@ func TestGroveRegisterWithHostID(t *testing.T) {
 func TestGroveRegisterWithInvalidHostID(t *testing.T) {
 	srv, _ := testServer(t)
 
-	// Try to register grove with non-existent hostId
+	// Try to register grove with non-existent brokerId
 	body := map[string]interface{}{
 		"name":      "Invalid Host Grove",
 		"gitRemote": "https://github.com/test/invalid-host-grove",
@@ -1218,7 +1218,7 @@ func TestHostRegistrationTwoPhaseFlow(t *testing.T) {
 	}
 
 	if createResp.BrokerID == "" {
-		t.Error("expected hostId to be set")
+		t.Error("expected brokerId to be set")
 	}
 	if createResp.JoinToken == "" {
 		t.Error("expected joinToken to be set")
@@ -1250,10 +1250,10 @@ func TestHostRegistrationTwoPhaseFlow(t *testing.T) {
 		t.Error("expected secretKey to be set")
 	}
 	if joinResp.BrokerID != createResp.BrokerID {
-		t.Errorf("expected hostId %q, got %q", createResp.BrokerID, joinResp.BrokerID)
+		t.Errorf("expected brokerId %q, got %q", createResp.BrokerID, joinResp.BrokerID)
 	}
 
-	// Phase 3: Register grove with hostId
+	// Phase 3: Register grove with brokerId
 	groveBody := map[string]interface{}{
 		"name":      "Two Phase Grove",
 		"gitRemote": "https://github.com/test/twophase",

@@ -644,8 +644,8 @@ func TestGenerateAndStoreSecret_RequiresHostID(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for empty brokerID")
 	}
-	if !strings.Contains(err.Error(), "hostId is required") {
-		t.Errorf("Expected 'hostId is required' error, got: %v", err)
+	if !strings.Contains(err.Error(), "brokerId is required") {
+		t.Errorf("Expected 'brokerId is required' error, got: %v", err)
 	}
 }
 

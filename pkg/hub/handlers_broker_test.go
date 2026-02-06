@@ -20,7 +20,7 @@ func TestAgentCreate_HostResolution(t *testing.T) {
 
 	// Create a runtime broker
 	broker := &store.RuntimeBroker{
-		ID:     "host_id_123",
+		ID:     "broker_id_123",
 		Name:   "My Laptop",
 		Slug:   "my-laptop",
 		Mode:   store.BrokerModeConnected,
@@ -52,14 +52,14 @@ func TestAgentCreate_HostResolution(t *testing.T) {
 		body := map[string]interface{}{
 			"name":          "Agent ID",
 			"groveId":       grove.ID,
-			"runtimeBrokerId": "host_id_123",
+			"runtimeBrokerId": "broker_id_123",
 		}
 		rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents", body)
 		assert.Equal(t, http.StatusCreated, rec.Code)
 		
 		var resp CreateAgentResponse
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-		assert.Equal(t, "host_id_123", resp.Agent.RuntimeBrokerID)
+		assert.Equal(t, "broker_id_123", resp.Agent.RuntimeBrokerID)
 	})
 
 	t.Run("Resolve by Name", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestAgentCreate_HostResolution(t *testing.T) {
 		
 		var resp CreateAgentResponse
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-		assert.Equal(t, "host_id_123", resp.Agent.RuntimeBrokerID)
+		assert.Equal(t, "broker_id_123", resp.Agent.RuntimeBrokerID)
 	})
 
 	t.Run("Resolve by Slug", func(t *testing.T) {
@@ -87,7 +87,7 @@ func TestAgentCreate_HostResolution(t *testing.T) {
 		
 		var resp CreateAgentResponse
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-		assert.Equal(t, "host_id_123", resp.Agent.RuntimeBrokerID)
+		assert.Equal(t, "broker_id_123", resp.Agent.RuntimeBrokerID)
 	})
 
 	t.Run("Invalid host", func(t *testing.T) {
