@@ -46,10 +46,11 @@ func DefaultControlChannelConfig() ControlChannelConfig {
 
 // ControlChannelManager manages WebSocket connections from Runtime Brokers.
 type ControlChannelManager struct {
-	connections map[string]*BrokerConnection // brokerID -> connection
-	mu          sync.RWMutex
-	config      ControlChannelConfig
-	upgrader    websocket.Upgrader
+	connections  map[string]*BrokerConnection // brokerID -> connection
+	mu           sync.RWMutex
+	config       ControlChannelConfig
+	upgrader     websocket.Upgrader
+	onDisconnect func(brokerID string)
 }
 
 // NewControlChannelManager creates a new control channel manager.
@@ -66,6 +67,14 @@ func NewControlChannelManager(config ControlChannelConfig) *ControlChannelManage
 			},
 		},
 	}
+}
+
+// SetOnDisconnect sets a callback that is invoked when a broker disconnects.
+// The callback is called asynchronously after the connection is removed.
+func (m *ControlChannelManager) SetOnDisconnect(fn func(brokerID string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onDisconnect = fn
 }
 
 // BrokerConnection represents an active control channel connection to a Runtime Broker.
@@ -419,8 +428,13 @@ func (m *ControlChannelManager) pingLoop(hc *BrokerConnection) {
 // removeConnection removes a broker connection from the manager.
 func (m *ControlChannelManager) removeConnection(brokerID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	delete(m.connections, brokerID)
+	cb := m.onDisconnect
+	m.mu.Unlock()
+
+	if cb != nil {
+		go cb(brokerID)
+	}
 }
 
 // GetConnection returns the connection for a broker, or nil if not connected.

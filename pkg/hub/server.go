@@ -294,6 +294,27 @@ func New(cfg ServerConfig, s store.Store) *Server {
 		RequestTimeout: 120 * time.Second,
 		Debug:          cfg.Debug,
 	})
+	// Set disconnect callback to mark broker offline when WebSocket drops
+	srv.controlChannel.SetOnDisconnect(func(brokerID string) {
+		ctx := context.Background()
+		slog.Info("Broker disconnected, marking offline", "brokerID", brokerID)
+
+		if err := s.UpdateRuntimeBrokerHeartbeat(ctx, brokerID, store.BrokerStatusOffline); err != nil {
+			slog.Error("Failed to mark broker offline", "brokerID", brokerID, "error", err)
+		}
+
+		// Update all grove contributor records for this broker
+		contribs, err := s.GetBrokerGroves(ctx, brokerID)
+		if err != nil {
+			slog.Error("Failed to get broker groves for status update", "brokerID", brokerID, "error", err)
+		} else {
+			for _, contrib := range contribs {
+				if err := s.UpdateContributorStatus(ctx, contrib.GroveID, brokerID, store.BrokerStatusOffline); err != nil {
+					slog.Error("Failed to update contributor status", "brokerID", brokerID, "groveID", contrib.GroveID, "error", err)
+				}
+			}
+		}
+	})
 	slog.Info("Control channel manager initialized")
 
 	// Build unified auth configuration
@@ -878,7 +899,9 @@ func (s *Server) handleRuntimeBrokerConnect(w http.ResponseWriter, r *http.Reque
 		if err := s.controlChannel.HandleUpgrade(w, r, brokerID); err != nil {
 			slog.Error("Upgrade failed for broker", "brokerID", brokerID, "error", err)
 			// Error already written by upgrader
+			return
 		}
+		s.markBrokerOnline(brokerID)
 		return
 	}
 
@@ -886,6 +909,29 @@ func (s *Server) handleRuntimeBrokerConnect(w http.ResponseWriter, r *http.Reque
 	if err := s.controlChannel.HandleUpgrade(w, r, broker.ID()); err != nil {
 		slog.Error("Upgrade failed for broker", "brokerID", broker.ID(), "error", err)
 		// Error already written by upgrader
+		return
+	}
+	s.markBrokerOnline(broker.ID())
+}
+
+// markBrokerOnline updates broker and contributor statuses to online after a successful WebSocket connection.
+func (s *Server) markBrokerOnline(brokerID string) {
+	ctx := context.Background()
+	slog.Info("Broker connected, marking online", "brokerID", brokerID)
+
+	if err := s.store.UpdateRuntimeBrokerHeartbeat(ctx, brokerID, store.BrokerStatusOnline); err != nil {
+		slog.Error("Failed to mark broker online", "brokerID", brokerID, "error", err)
+	}
+
+	contribs, err := s.store.GetBrokerGroves(ctx, brokerID)
+	if err != nil {
+		slog.Error("Failed to get broker groves for status update", "brokerID", brokerID, "error", err)
+		return
+	}
+	for _, contrib := range contribs {
+		if err := s.store.UpdateContributorStatus(ctx, contrib.GroveID, brokerID, store.BrokerStatusOnline); err != nil {
+			slog.Error("Failed to update contributor status", "brokerID", brokerID, "groveID", contrib.GroveID, "error", err)
+		}
 	}
 }
 

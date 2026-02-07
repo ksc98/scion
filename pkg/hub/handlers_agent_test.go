@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -171,4 +172,109 @@ func TestAgentStatusUpdate_Heartbeat(t *testing.T) {
 	updated, err := s.GetAgent(ctx, agent.ID)
 	require.NoError(t, err)
 	assert.True(t, updated.LastSeen.After(initialTime), "LastSeen should be updated")
+}
+
+// setupOfflineBrokerAgent creates a grove, an offline broker, and an agent assigned to that broker.
+func setupOfflineBrokerAgent(t *testing.T, s store.Store, suffix string) (*store.Grove, *store.RuntimeBroker, *store.Agent) {
+	t.Helper()
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID:   fmt.Sprintf("grove-offline-%s", suffix),
+		Name: fmt.Sprintf("Offline Grove %s", suffix),
+		Slug: fmt.Sprintf("offline-grove-%s", suffix),
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	broker := &store.RuntimeBroker{
+		ID:     fmt.Sprintf("broker-offline-%s", suffix),
+		Name:   fmt.Sprintf("Offline Broker %s", suffix),
+		Slug:   fmt.Sprintf("offline-broker-%s", suffix),
+		Status: store.BrokerStatusOffline,
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker))
+
+	agent := &store.Agent{
+		ID:              fmt.Sprintf("agent-offline-%s", suffix),
+		AgentID:         fmt.Sprintf("agent-offline-%s-slug", suffix),
+		Name:            fmt.Sprintf("Agent Offline %s", suffix),
+		GroveID:         grove.ID,
+		RuntimeBrokerID: broker.ID,
+		Status:          store.AgentStatusRunning,
+	}
+	require.NoError(t, s.CreateAgent(ctx, agent))
+
+	return grove, broker, agent
+}
+
+func TestDeleteAgent_BrokerOffline(t *testing.T) {
+	srv, s := testServer(t)
+
+	_, _, agent := setupOfflineBrokerAgent(t, s, "del")
+
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/agents/"+agent.ID, nil)
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+
+	// Verify agent was NOT deleted
+	ctx := context.Background()
+	_, err := s.GetAgent(ctx, agent.ID)
+	assert.NoError(t, err, "agent should still exist when broker is offline")
+}
+
+func TestDeleteAgent_NoBroker(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	grove := &store.Grove{
+		ID:   "grove-nobroker",
+		Name: "No Broker Grove",
+		Slug: "no-broker-grove",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	agent := &store.Agent{
+		ID:      "agent-nobroker",
+		AgentID: "agent-nobroker-slug",
+		Name:    "Agent No Broker",
+		GroveID: grove.ID,
+		Status:  store.AgentStatusRunning,
+		// No RuntimeBrokerID set
+	}
+	require.NoError(t, s.CreateAgent(ctx, agent))
+
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/agents/"+agent.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify agent was deleted
+	_, err := s.GetAgent(ctx, agent.ID)
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestAgentLifecycle_BrokerOffline(t *testing.T) {
+	srv, s := testServer(t)
+
+	_, _, agent := setupOfflineBrokerAgent(t, s, "lc")
+
+	rec := doRequest(t, srv, http.MethodPost, "/api/v1/agents/"+agent.ID+"/start", nil)
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+
+	// Verify the error code
+	var errResp ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, ErrCodeRuntimeBrokerUnavail, errResp.Error.Code)
+}
+
+func TestDeleteGroveAgent_BrokerOffline(t *testing.T) {
+	srv, s := testServer(t)
+
+	grove, _, agent := setupOfflineBrokerAgent(t, s, "gdel")
+
+	rec := doRequest(t, srv, http.MethodDelete,
+		fmt.Sprintf("/api/v1/groves/%s/agents/%s", grove.ID, agent.ID), nil)
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+
+	// Verify agent was NOT deleted
+	ctx := context.Background()
+	_, err := s.GetAgent(ctx, agent.ID)
+	assert.NoError(t, err, "agent should still exist when broker is offline")
 }

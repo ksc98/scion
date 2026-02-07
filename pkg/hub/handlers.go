@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -425,6 +426,35 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	writeJSON(w, http.StatusOK, agent)
 }
 
+// checkBrokerAvailability verifies the agent's runtime broker is reachable.
+// Returns true if the broker is available (or no broker is assigned).
+// Returns false and writes a 503 error response if the broker is offline.
+func (s *Server) checkBrokerAvailability(w http.ResponseWriter, r *http.Request, agent *store.Agent) bool {
+	if agent.RuntimeBrokerID == "" {
+		return true
+	}
+
+	// Check real-time WebSocket connectivity first (no DB query needed)
+	if s.controlChannel != nil && s.controlChannel.IsConnected(agent.RuntimeBrokerID) {
+		return true
+	}
+
+	// Fall back to DB status check (covers co-located mode where there's no WebSocket)
+	broker, err := s.store.GetRuntimeBroker(r.Context(), agent.RuntimeBrokerID)
+	if err != nil {
+		slog.Warn("Failed to check broker status", "brokerID", agent.RuntimeBrokerID, "error", err)
+		// If we can't verify, let it through rather than blocking
+		return true
+	}
+
+	if broker.Status == store.BrokerStatusOnline {
+		return true
+	}
+
+	RuntimeBrokerUnavailable(w, agent.RuntimeBrokerID, nil)
+	return false
+}
+
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 	query := r.URL.Query()
@@ -436,6 +466,11 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, id string) 
 	agent, err := s.store.GetAgent(ctx, id)
 	if err != nil {
 		writeErrorFromErr(w, err, "")
+		return
+	}
+
+	// Verify broker is reachable before deleting to avoid orphaned containers
+	if !s.checkBrokerAvailability(w, r, agent) {
 		return
 	}
 
@@ -509,6 +544,10 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
+	if !s.checkBrokerAvailability(w, r, agent) {
+		return
+	}
+
 	// If a dispatcher is available, dispatch the message to the runtime broker
 	if dispatcher := s.GetDispatcher(); dispatcher != nil && agent.RuntimeBrokerID != "" {
 		if err := dispatcher.DispatchAgentMessage(ctx, agent, req.Message, req.Interrupt); err != nil {
@@ -563,6 +602,10 @@ func (s *Server) handleAgentLifecycle(w http.ResponseWriter, r *http.Request, id
 	agent, err := s.store.GetAgent(ctx, id)
 	if err != nil {
 		writeErrorFromErr(w, err, "")
+		return
+	}
+
+	if !s.checkBrokerAvailability(w, r, agent) {
 		return
 	}
 
@@ -1424,6 +1467,11 @@ func (s *Server) deleteGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 			writeErrorFromErr(w, err, "")
 			return
 		}
+	}
+
+	// Verify broker is reachable before deleting to avoid orphaned containers
+	if !s.checkBrokerAvailability(w, r, agent) {
+		return
 	}
 
 	// If a dispatcher is available, dispatch the deletion to the runtime broker
