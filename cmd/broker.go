@@ -28,9 +28,10 @@ var (
 	brokerDeregisterBrokerOnly bool
 
 	// broker start flags
-	brokerStartForeground bool
-	brokerStartPort       int
+	brokerStartForeground  bool
+	brokerStartPort        int
 	brokerStartAutoProvide bool
+	brokerStartDebug       bool
 
 	// broker provide/withdraw flags
 	brokerGroveID   string
@@ -250,6 +251,7 @@ func init() {
 	brokerStartCmd.Flags().BoolVar(&brokerStartForeground, "foreground", false, "Run in foreground instead of as daemon")
 	brokerStartCmd.Flags().IntVar(&brokerStartPort, "port", DefaultBrokerPort, "Runtime Broker API port")
 	brokerStartCmd.Flags().BoolVar(&brokerStartAutoProvide, "auto-provide", false, "Automatically add as provider for new groves")
+	brokerStartCmd.Flags().BoolVar(&brokerStartDebug, "debug", false, "Enable debug logging (verbose output)")
 
 	// Provide/withdraw flags
 	brokerProvideCmd.Flags().StringVar(&brokerGroveID, "grove", "", "Grove name or ID to add as provider for")
@@ -575,6 +577,9 @@ func runBrokerStart(cmd *cobra.Command, args []string) error {
 		if brokerStartAutoProvide {
 			serverArgs = append(serverArgs, "--auto-provide")
 		}
+		if brokerStartDebug {
+			serverArgs = append(serverArgs, "--debug")
+		}
 
 		fmt.Printf("Starting broker in foreground on port %d...\n", brokerStartPort)
 		fmt.Println("Press Ctrl+C to stop.")
@@ -606,6 +611,9 @@ func runBrokerStart(cmd *cobra.Command, args []string) error {
 	}
 	if brokerStartAutoProvide {
 		daemonArgs = append(daemonArgs, "--auto-provide")
+	}
+	if brokerStartDebug {
+		daemonArgs = append(daemonArgs, "--debug")
 	}
 
 	// Start daemon
