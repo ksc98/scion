@@ -444,6 +444,20 @@ func (d *HTTPAgentDispatcher) DispatchAgentCreate(ctx context.Context, agent *st
 		req.ResolvedEnv = agent.AppliedConfig.Env
 	}
 
+	// Resolve type-aware secrets from all applicable scopes
+	resolvedSecrets, err := d.resolveSecrets(ctx, agent)
+	if err != nil {
+		if d.debug {
+			slog.Warn("Failed to resolve secrets", "error", err)
+		}
+		// Continue without secrets rather than failing agent creation
+	} else if len(resolvedSecrets) > 0 {
+		req.ResolvedSecrets = resolvedSecrets
+		if d.debug {
+			slog.Debug("Resolved secrets for agent", "count", len(resolvedSecrets))
+		}
+	}
+
 	resp, err := d.client.CreateAgent(ctx, agent.RuntimeBrokerID, endpoint, req)
 	if err != nil {
 		return err
@@ -551,4 +565,71 @@ func (d *HTTPAgentDispatcher) DispatchCheckAgentPrompt(ctx context.Context, agen
 	}
 
 	return d.client.CheckAgentPrompt(ctx, agent.RuntimeBrokerID, endpoint, agent.Name)
+}
+
+// resolveSecrets queries secrets from all applicable scopes and merges them
+// into a flat list. Higher scopes override lower: user < grove < runtime_broker.
+func (d *HTTPAgentDispatcher) resolveSecrets(ctx context.Context, agent *store.Agent) ([]ResolvedSecret, error) {
+	// Map keyed by secret Key; later scopes override earlier ones
+	merged := make(map[string]ResolvedSecret)
+
+	// Scope resolution order: user (lowest), grove, runtime_broker (highest)
+	type scopeEntry struct {
+		scope   string
+		scopeID string
+	}
+
+	var scopes []scopeEntry
+	if agent.OwnerID != "" {
+		scopes = append(scopes, scopeEntry{scope: store.ScopeUser, scopeID: agent.OwnerID})
+	}
+	if agent.GroveID != "" {
+		scopes = append(scopes, scopeEntry{scope: store.ScopeGrove, scopeID: agent.GroveID})
+	}
+	if agent.RuntimeBrokerID != "" {
+		scopes = append(scopes, scopeEntry{scope: store.ScopeRuntimeBroker, scopeID: agent.RuntimeBrokerID})
+	}
+
+	for _, s := range scopes {
+		secrets, err := d.store.ListSecrets(ctx, store.SecretFilter{
+			Scope:   s.scope,
+			ScopeID: s.scopeID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list secrets for scope %s/%s: %w", s.scope, s.scopeID, err)
+		}
+
+		for _, secret := range secrets {
+			value, err := d.store.GetSecretValue(ctx, secret.Key, s.scope, s.scopeID)
+			if err != nil {
+				if d.debug {
+					slog.Warn("Failed to get secret value", "key", secret.Key, "scope", s.scope, "error", err)
+				}
+				continue
+			}
+
+			secretType := secret.SecretType
+			if secretType == "" {
+				secretType = store.SecretTypeEnvironment
+			}
+			target := secret.Target
+			if target == "" {
+				target = secret.Key
+			}
+
+			merged[secret.Key] = ResolvedSecret{
+				Name:   secret.Key,
+				Type:   secretType,
+				Target: target,
+				Value:  value,
+				Source: s.scope,
+			}
+		}
+	}
+
+	result := make([]ResolvedSecret, 0, len(merged))
+	for _, rs := range merged {
+		result = append(result, rs)
+	}
+	return result, nil
 }

@@ -217,6 +217,13 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		}
 	}
 
+	// Inject environment-type resolved secrets
+	for _, s := range config.ResolvedSecrets {
+		if s.Type == "environment" || s.Type == "" {
+			addArg("-e", fmt.Sprintf("%s=%s", s.Target, s.Value))
+		}
+	}
+
 	// Add all registered volumes
 	for _, tgt := range volumeOrder {
 		addArg("-v", volumeMap[tgt])
@@ -321,4 +328,106 @@ func runInteractiveCommand(command string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// writeFileSecrets writes file-type secrets to a staging directory and returns
+// bind-mount specs that should be added to the container run command.
+// The staging directory is created as a sibling of homeDir: <parent>/secrets/<name>/
+func writeFileSecrets(homeDir string, secrets []api.ResolvedSecret) ([]string, error) {
+	var mountSpecs []string
+	secretsDir := filepath.Join(filepath.Dir(homeDir), "secrets")
+
+	for _, s := range secrets {
+		if s.Type != "file" {
+			continue
+		}
+
+		// Decode base64-encoded file content
+		data, err := base64.StdEncoding.DecodeString(s.Value)
+		if err != nil {
+			// Fall back to raw value if not base64-encoded
+			data = []byte(s.Value)
+		}
+
+		// Write to staging dir using the secret name as filename
+		hostPath := filepath.Join(secretsDir, s.Name)
+		if err := os.MkdirAll(filepath.Dir(hostPath), 0700); err != nil {
+			return nil, fmt.Errorf("failed to create secret directory: %w", err)
+		}
+		if err := os.WriteFile(hostPath, data, 0600); err != nil {
+			return nil, fmt.Errorf("failed to write secret file %s: %w", s.Name, err)
+		}
+
+		// Bind-mount from host staging path to container target path (read-only)
+		mountSpecs = append(mountSpecs, fmt.Sprintf("%s:%s:ro", hostPath, s.Target))
+	}
+
+	return mountSpecs, nil
+}
+
+// writeVariableSecrets writes variable-type secrets to ~/.scion/secrets.json
+// inside the agent's home directory for programmatic access.
+func writeVariableSecrets(homeDir string, secrets []api.ResolvedSecret) error {
+	vars := make(map[string]string)
+	for _, s := range secrets {
+		if s.Type != "variable" {
+			continue
+		}
+		vars[s.Target] = s.Value
+	}
+
+	if len(vars) == 0 {
+		return nil
+	}
+
+	scionDir := filepath.Join(homeDir, ".scion")
+	if err := os.MkdirAll(scionDir, 0700); err != nil {
+		return fmt.Errorf("failed to create .scion directory: %w", err)
+	}
+
+	data, err := json.Marshal(vars)
+	if err != nil {
+		return fmt.Errorf("failed to marshal secrets.json: %w", err)
+	}
+
+	return os.WriteFile(filepath.Join(scionDir, "secrets.json"), data, 0600)
+}
+
+// secretMapEntry describes a file secret for the Apple runtime's secret-map.json.
+type secretMapEntry struct {
+	Name   string `json:"name"`
+	Target string `json:"target"`
+	Source string `json:"source"` // relative path within the secrets volume
+}
+
+// writeSecretMap writes a secret-map.json manifest that the Apple container runtime
+// uses to copy file secrets from the shared volume to their target paths.
+func writeSecretMap(homeDir string, secrets []api.ResolvedSecret) error {
+	var entries []secretMapEntry
+	for _, s := range secrets {
+		if s.Type != "file" {
+			continue
+		}
+		entries = append(entries, secretMapEntry{
+			Name:   s.Name,
+			Target: s.Target,
+			Source: s.Name, // filename within secrets/ volume
+		})
+	}
+
+	if len(entries) == 0 {
+		return nil
+	}
+
+	secretsDir := filepath.Join(filepath.Dir(homeDir), "secrets")
+	if err := os.MkdirAll(secretsDir, 0700); err != nil {
+		return fmt.Errorf("failed to create secrets directory: %w", err)
+	}
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("failed to marshal secret-map.json: %w", err)
+	}
+
+	return os.WriteFile(filepath.Join(secretsDir, "secret-map.json"), data, 0600)
 }

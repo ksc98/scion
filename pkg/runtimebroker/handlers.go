@@ -328,6 +328,14 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	// Always set env (may be empty, which is fine)
 	opts.Env = env
 
+	// Pass through resolved secrets from the Hub
+	if len(req.ResolvedSecrets) > 0 {
+		opts.ResolvedSecrets = req.ResolvedSecrets
+		if s.config.Debug {
+			slog.Debug("Received resolved secrets from Hub", "count", len(req.ResolvedSecrets))
+		}
+	}
+
 	// If WorkspaceStoragePath is set, download workspace from GCS (non-git bootstrap)
 	if req.WorkspaceStoragePath != "" {
 		workspaceDir := filepath.Join(s.config.WorktreeBase, req.Name, "workspace")

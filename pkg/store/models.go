@@ -444,6 +444,10 @@ type Secret struct {
 	// Value (stored encrypted, never returned in API responses)
 	EncryptedValue string `json:"-"` // Encrypted value (never serialized)
 
+	// Type and Target
+	SecretType string `json:"type"`             // environment, variable, file (default: environment)
+	Target     string `json:"target,omitempty"` // Projection target: env var name, json key, or file path
+
 	// Scope
 	Scope   string `json:"scope"`   // user, grove, runtime_broker
 	ScopeID string `json:"scopeId"` // ID of the scoped entity
@@ -460,6 +464,13 @@ type Secret struct {
 	CreatedBy string `json:"createdBy,omitempty"`
 	UpdatedBy string `json:"updatedBy,omitempty"`
 }
+
+// SecretType constants define how a secret is projected into the agent container.
+const (
+	SecretTypeEnvironment = "environment" // Injected as environment variable (default)
+	SecretTypeVariable    = "variable"    // Written to ~/.scion/secrets.json for programmatic access
+	SecretTypeFile        = "file"        // Written to a file at the specified Target path
+)
 
 // Scope constants for environment variables and secrets.
 const (

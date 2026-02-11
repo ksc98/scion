@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -28,9 +29,11 @@ import (
 )
 
 var (
-	secretGroveScope string
-	secretBrokerScope  string
-	secretOutputJSON bool
+	secretGroveScope  string
+	secretBrokerScope string
+	secretOutputJSON  bool
+	secretType        string
+	secretTarget      string
 )
 
 // hubSecretCmd is the parent command for secret operations
@@ -79,10 +82,19 @@ Only metadata (key, scope, creation time) can be viewed.
 By default, secrets are scoped to the current user. Use --grove or --broker
 to set secrets at different scopes.
 
+Secret types control how the value is projected into agent containers:
+  - environment (default): Injected as an environment variable
+  - variable: Written to ~/.scion/secrets.json for programmatic access
+  - file: Written to the filesystem at the specified target path
+
+For file secrets, prefix the value with @ to read from a file:
+  scion hub secret set --type file --target /etc/ssl/cert.pem TLS_CERT @cert.pem
+
 Examples:
   scion hub secret set API_KEY sk-abc123
   scion hub secret set --grove DATABASE_PASSWORD mypassword
-  scion hub secret set --broker SSH_PRIVATE_KEY "$(cat ~/.ssh/id_rsa)"`,
+  scion hub secret set --type variable CONFIG_JSON '{"key":"val"}'
+  scion hub secret set --type file --target /home/scion/.ssh/id_rsa SSH_KEY @~/.ssh/id_rsa`,
 	Args: cobra.ExactArgs(2),
 	RunE: runSecretSet,
 }
@@ -135,6 +147,10 @@ func init() {
 	}
 
 	hubSecretGetCmd.Flags().BoolVar(&secretOutputJSON, "json", false, "Output in JSON format")
+
+	// Type and target flags for set command
+	hubSecretSetCmd.Flags().StringVar(&secretType, "type", "", "Secret type: environment (default), variable, file")
+	hubSecretSetCmd.Flags().StringVar(&secretTarget, "target", "", "Projection target (env var name, json key, or file path; defaults to KEY)")
 }
 
 // resolveSecretScope determines the scope and scopeID based on flags
@@ -192,6 +208,28 @@ func runSecretSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("key cannot contain spaces, tabs, newlines, or '='")
 	}
 
+	// Handle @filename prefix for file secrets: read file content and base64-encode
+	if strings.HasPrefix(value, "@") {
+		filePath := value[1:]
+		// Expand ~ in file path
+		if strings.HasPrefix(filePath, "~/") {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to expand home directory: %w", err)
+			}
+			filePath = home + filePath[1:]
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", filePath, err)
+		}
+		value = base64.StdEncoding.EncodeToString(data)
+		// Default to file type when using @file syntax
+		if secretType == "" {
+			secretType = "file"
+		}
+	}
+
 	resolvedPath, _, err := config.ResolveGrovePath(grovePath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve grove path: %w", err)
@@ -219,6 +257,8 @@ func runSecretSet(cmd *cobra.Command, args []string) error {
 		Value:   value,
 		Scope:   scope,
 		ScopeID: scopeID,
+		Type:    secretType,
+		Target:  secretTarget,
 	}
 
 	resp, err := client.Secrets().Set(ctx, key, req)
@@ -226,10 +266,15 @@ func runSecretSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to set secret: %w", err)
 	}
 
+	typeLabel := resp.Secret.SecretType
+	if typeLabel == "" {
+		typeLabel = "environment"
+	}
+
 	if resp.Created {
-		fmt.Printf("Created secret %s (scope: %s)\n", key, scope)
+		fmt.Printf("Created secret %s (scope: %s, type: %s)\n", key, scope, typeLabel)
 	} else {
-		fmt.Printf("Updated secret %s (scope: %s, version: %d)\n", key, scope, resp.Secret.Version)
+		fmt.Printf("Updated secret %s (scope: %s, type: %s, version: %d)\n", key, scope, typeLabel, resp.Secret.Version)
 	}
 
 	return nil
@@ -280,6 +325,14 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 
 		fmt.Printf("Secret: %s\n", secret.Key)
 		fmt.Printf("  Scope:   %s\n", secret.Scope)
+		typeLabel := secret.SecretType
+		if typeLabel == "" {
+			typeLabel = "environment"
+		}
+		fmt.Printf("  Type:    %s\n", typeLabel)
+		if secret.Target != "" && secret.Target != secret.Key {
+			fmt.Printf("  Target:  %s\n", secret.Target)
+		}
 		fmt.Printf("  Version: %d\n", secret.Version)
 		fmt.Printf("  Created: %s\n", secret.Created.Format(time.RFC3339))
 		fmt.Printf("  Updated: %s\n", secret.Updated.Format(time.RFC3339))
@@ -312,10 +365,14 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Secrets (scope: %s):\n", scope)
-	fmt.Printf("%-30s  %-8s  %s\n", "KEY", "VERSION", "UPDATED")
-	fmt.Printf("%-30s  %-8s  %s\n", "------------------------------", "--------", "-------------------")
+	fmt.Printf("%-30s  %-12s  %-8s  %s\n", "KEY", "TYPE", "VERSION", "UPDATED")
+	fmt.Printf("%-30s  %-12s  %-8s  %s\n", "------------------------------", "------------", "--------", "-------------------")
 	for _, s := range resp.Secrets {
-		fmt.Printf("%-30s  v%-7d  %s\n", truncate(s.Key, 30), s.Version, s.Updated.Format("2006-01-02 15:04:05"))
+		typeLabel := s.SecretType
+		if typeLabel == "" {
+			typeLabel = "environment"
+		}
+		fmt.Printf("%-30s  %-12s  v%-7d  %s\n", truncate(s.Key, 30), typeLabel, s.Version, s.Updated.Format("2006-01-02 15:04:05"))
 	}
 
 	return nil

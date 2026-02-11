@@ -48,6 +48,7 @@ type secretService struct {
 type ListSecretOptions struct {
 	Scope   string // user, grove, runtime_broker (default: user)
 	ScopeID string // ID of the scoped entity (required for grove/runtime_broker)
+	Type    string // Optional: filter by secret type (environment, variable, file)
 }
 
 // ListSecretResponse is the response from listing secrets.
@@ -69,6 +70,8 @@ type SetSecretRequest struct {
 	Scope       string `json:"scope,omitempty"`       // Scope type (default: user)
 	ScopeID     string `json:"scopeId,omitempty"`     // Required for grove/runtime_broker scope
 	Description string `json:"description,omitempty"` // Optional description
+	Type        string `json:"type,omitempty"`        // Secret type: environment (default), variable, file
+	Target      string `json:"target,omitempty"`      // Projection target (defaults to key)
 }
 
 // SetSecretResponse is the response from setting a secret.
@@ -86,6 +89,9 @@ func (s *secretService) List(ctx context.Context, opts *ListSecretOptions) (*Lis
 		}
 		if opts.ScopeID != "" {
 			query.Set("scopeId", opts.ScopeID)
+		}
+		if opts.Type != "" {
+			query.Set("type", opts.Type)
 		}
 	}
 

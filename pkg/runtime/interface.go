@@ -21,25 +21,26 @@ import (
 )
 
 type RunConfig struct {
-	Name         string
-	Template     string
-	UnixUsername string
-	Image        string
-	HomeDir      string
-	Workspace    string
-	RepoRoot     string
-	Env          []string
-	Volumes      []api.VolumeMount
-	Labels       map[string]string
-	Annotations  map[string]string
-	Auth         api.AuthConfig
-	Harness      api.Harness
-	UseTmux      bool
-	Task         string
-	CommandArgs  []string
-	Resume       bool
-	Resources    *api.ResourceSpec
-	Kubernetes   *api.KubernetesConfig
+	Name            string
+	Template        string
+	UnixUsername    string
+	Image           string
+	HomeDir         string
+	Workspace       string
+	RepoRoot        string
+	Env             []string
+	ResolvedSecrets []api.ResolvedSecret
+	Volumes         []api.VolumeMount
+	Labels          map[string]string
+	Annotations     map[string]string
+	Auth            api.AuthConfig
+	Harness         api.Harness
+	UseTmux         bool
+	Task            string
+	CommandArgs     []string
+	Resume          bool
+	Resources       *api.ResourceSpec
+	Kubernetes      *api.KubernetesConfig
 }
 
 type Runtime interface {

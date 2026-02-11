@@ -254,7 +254,8 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 			}
 			return args
 		}(),
-		Env:          agentEnv,
+		Env:             agentEnv,
+		ResolvedSecrets: opts.ResolvedSecrets,
 		Volumes: func() []api.VolumeMount {
 			if finalScionCfg == nil {
 				return nil

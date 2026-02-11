@@ -2978,6 +2978,8 @@ type SetSecretRequest struct {
 	Scope       string `json:"scope,omitempty"`
 	ScopeID     string `json:"scopeId,omitempty"`
 	Description string `json:"description,omitempty"`
+	Type        string `json:"type,omitempty"`   // environment (default), variable, file
+	Target      string `json:"target,omitempty"` // Projection target (defaults to key)
 }
 
 type SetSecretResponse struct {
@@ -3011,6 +3013,7 @@ func (s *Server) listSecrets(w http.ResponseWriter, r *http.Request) {
 		Scope:   scope,
 		ScopeID: scopeID,
 		Key:     query.Get("key"),
+		Type:    query.Get("type"),
 	}
 
 	secrets, err := s.store.ListSecrets(ctx, filter)
@@ -3085,6 +3088,48 @@ func (s *Server) setSecret(w http.ResponseWriter, r *http.Request, key string) {
 		return
 	}
 
+	// Validate and default secret type
+	secretType := req.Type
+	if secretType == "" {
+		secretType = store.SecretTypeEnvironment
+	}
+	switch secretType {
+	case store.SecretTypeEnvironment, store.SecretTypeVariable, store.SecretTypeFile:
+		// valid
+	default:
+		ValidationError(w, "type must be one of: environment, variable, file", map[string]interface{}{
+			"field": "type",
+			"value": secretType,
+		})
+		return
+	}
+
+	// Default target to key
+	target := req.Target
+	if target == "" {
+		target = key
+	}
+
+	// Validate file-specific constraints
+	if secretType == store.SecretTypeFile {
+		if !strings.HasPrefix(target, "/") {
+			ValidationError(w, "file secret target must be an absolute path", map[string]interface{}{
+				"field": "target",
+				"value": target,
+			})
+			return
+		}
+		// Enforce 64 KiB limit for file secrets
+		if len(req.Value) > 64*1024 {
+			ValidationError(w, "file secret value exceeds 64 KiB limit", map[string]interface{}{
+				"field": "value",
+				"limit": "65536 bytes",
+				"size":  len(req.Value),
+			})
+			return
+		}
+	}
+
 	scope := req.Scope
 	if scope == "" {
 		scope = store.ScopeUser
@@ -3102,6 +3147,8 @@ func (s *Server) setSecret(w http.ResponseWriter, r *http.Request, key string) {
 		ID:             api.NewUUID(),
 		Key:            key,
 		EncryptedValue: encryptedValue,
+		SecretType:     secretType,
+		Target:         target,
 		Scope:          scope,
 		ScopeID:        scopeID,
 		Description:    req.Description,
@@ -3332,10 +3379,36 @@ func (s *Server) handleGroveSecretByKey(w http.ResponseWriter, r *http.Request, 
 			ValidationError(w, "value is required", nil)
 			return
 		}
+		secretType := req.Type
+		if secretType == "" {
+			secretType = store.SecretTypeEnvironment
+		}
+		switch secretType {
+		case store.SecretTypeEnvironment, store.SecretTypeVariable, store.SecretTypeFile:
+		default:
+			ValidationError(w, "type must be one of: environment, variable, file", map[string]interface{}{"field": "type", "value": secretType})
+			return
+		}
+		target := req.Target
+		if target == "" {
+			target = key
+		}
+		if secretType == store.SecretTypeFile {
+			if !strings.HasPrefix(target, "/") {
+				ValidationError(w, "file secret target must be an absolute path", map[string]interface{}{"field": "target", "value": target})
+				return
+			}
+			if len(req.Value) > 64*1024 {
+				ValidationError(w, "file secret value exceeds 64 KiB limit", map[string]interface{}{"field": "value", "limit": "65536 bytes", "size": len(req.Value)})
+				return
+			}
+		}
 		secret := &store.Secret{
 			ID:             api.NewUUID(),
 			Key:            key,
 			EncryptedValue: req.Value, // TODO: Encrypt
+			SecretType:     secretType,
+			Target:         target,
 			Scope:          store.ScopeGrove,
 			ScopeID:        groveID,
 			Description:    req.Description,
@@ -3692,10 +3765,36 @@ func (s *Server) handleBrokerSecretByKey(w http.ResponseWriter, r *http.Request,
 			ValidationError(w, "value is required", nil)
 			return
 		}
+		secretType := req.Type
+		if secretType == "" {
+			secretType = store.SecretTypeEnvironment
+		}
+		switch secretType {
+		case store.SecretTypeEnvironment, store.SecretTypeVariable, store.SecretTypeFile:
+		default:
+			ValidationError(w, "type must be one of: environment, variable, file", map[string]interface{}{"field": "type", "value": secretType})
+			return
+		}
+		target := req.Target
+		if target == "" {
+			target = key
+		}
+		if secretType == store.SecretTypeFile {
+			if !strings.HasPrefix(target, "/") {
+				ValidationError(w, "file secret target must be an absolute path", map[string]interface{}{"field": "target", "value": target})
+				return
+			}
+			if len(req.Value) > 64*1024 {
+				ValidationError(w, "file secret value exceeds 64 KiB limit", map[string]interface{}{"field": "value", "limit": "65536 bytes", "size": len(req.Value)})
+				return
+			}
+		}
 		secret := &store.Secret{
 			ID:             api.NewUUID(),
 			Key:            key,
 			EncryptedValue: req.Value, // TODO: Encrypt
+			SecretType:     secretType,
+			Target:         target,
 			Scope:          store.ScopeRuntimeBroker,
 			ScopeID:        brokerID,
 			Description:    req.Description,

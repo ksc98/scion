@@ -153,6 +153,11 @@ type CreateAgentRequest struct {
 	// taking precedence over ResolvedEnv.
 	ResolvedEnv map[string]string `json:"resolvedEnv,omitempty"`
 
+	// ResolvedSecrets contains type-aware secrets resolved by the Hub.
+	// These are projected into the agent container based on their type
+	// (environment variable, file, or variable).
+	ResolvedSecrets []api.ResolvedSecret `json:"resolvedSecrets,omitempty"`
+
 	// Attach indicates the agent should start in interactive attach mode (not detached).
 	Attach bool `json:"attach,omitempty"`
 	// GrovePath is the local filesystem path to the grove on this runtime broker.

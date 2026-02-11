@@ -18,7 +18,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,6 +43,19 @@ func (r *AppleContainerRuntime) Name() string {
 }
 
 func (r *AppleContainerRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
+	// Stage file, variable, and secret-map secrets before building args
+	if config.HomeDir != "" && len(config.ResolvedSecrets) > 0 {
+		if _, err := writeFileSecrets(config.HomeDir, config.ResolvedSecrets); err != nil {
+			return "", fmt.Errorf("failed to stage file secrets: %w", err)
+		}
+		if err := writeVariableSecrets(config.HomeDir, config.ResolvedSecrets); err != nil {
+			return "", fmt.Errorf("failed to write variable secrets: %w", err)
+		}
+		if err := writeSecretMap(config.HomeDir, config.ResolvedSecrets); err != nil {
+			return "", fmt.Errorf("failed to write secret map: %w", err)
+		}
+	}
+
 	args, err := buildCommonRunArgs(config)
 	if err != nil {
 		return "", err
@@ -83,6 +98,14 @@ func (r *AppleContainerRuntime) Run(ctx context.Context, config RunConfig) (stri
 
 	// Skip the original 'run', '-d', and '-i' from buildCommonRunArgs (indices 0, 1, 2)
 	newArgs = append(newArgs, args[3:]...)
+
+	// Mount secrets staging directory as a read-only volume for Apple runtime
+	if config.HomeDir != "" && len(config.ResolvedSecrets) > 0 {
+		secretsDir := filepath.Join(filepath.Dir(config.HomeDir), "secrets")
+		if _, err := os.Stat(secretsDir); err == nil {
+			newArgs = append(newArgs, "-v", secretsDir+":/run/scion-secrets:ro")
+		}
+	}
 
 	out, err := runSimpleCommand(ctx, r.Command, newArgs...)
 	if err != nil {

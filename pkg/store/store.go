@@ -371,6 +371,7 @@ type SecretFilter struct {
 	Scope   string // Required: user, grove, runtime_broker
 	ScopeID string // Required: ID of the scoped entity
 	Key     string // Optional: filter by specific key
+	Type    string // Optional: filter by secret type (environment, variable, file)
 }
 
 // =============================================================================

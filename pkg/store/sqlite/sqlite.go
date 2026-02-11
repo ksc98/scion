@@ -77,6 +77,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		migrationV10,
 		migrationV11,
 		migrationV12,
+		migrationV13,
 	}
 
 	// Create migrations table if not exists
@@ -467,6 +468,11 @@ ALTER TABLE runtime_brokers ADD COLUMN auto_provide INTEGER NOT NULL DEFAULT 0;
 const migrationV12 = `
 ALTER TABLE env_vars ADD COLUMN injection_mode TEXT NOT NULL DEFAULT 'as_needed';
 ALTER TABLE env_vars ADD COLUMN secret INTEGER NOT NULL DEFAULT 0;
+`
+
+const migrationV13 = `
+ALTER TABLE secrets ADD COLUMN secret_type TEXT NOT NULL DEFAULT 'environment';
+ALTER TABLE secrets ADD COLUMN target TEXT;
 `
 
 // Helper functions for JSON marshaling/unmarshaling
@@ -2186,11 +2192,19 @@ func (s *SQLiteStore) CreateSecret(ctx context.Context, secret *store.Secret) er
 	secret.Updated = now
 	secret.Version = 1
 
+	if secret.SecretType == "" {
+		secret.SecretType = store.SecretTypeEnvironment
+	}
+	if secret.Target == "" {
+		secret.Target = secret.Key
+	}
+
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO secrets (id, key, encrypted_value, scope, scope_id, description, version, created_at, updated_at, created_by, updated_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO secrets (id, key, encrypted_value, secret_type, target, scope, scope_id, description, version, created_at, updated_at, created_by, updated_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
-		secret.ID, secret.Key, secret.EncryptedValue, secret.Scope, secret.ScopeID,
+		secret.ID, secret.Key, secret.EncryptedValue, secret.SecretType, nullableString(secret.Target),
+		secret.Scope, secret.ScopeID,
 		secret.Description, secret.Version,
 		secret.Created, secret.Updated, secret.CreatedBy, secret.UpdatedBy,
 	)
@@ -2205,12 +2219,14 @@ func (s *SQLiteStore) CreateSecret(ctx context.Context, secret *store.Secret) er
 
 func (s *SQLiteStore) GetSecret(ctx context.Context, key, scope, scopeID string) (*store.Secret, error) {
 	secret := &store.Secret{}
+	var target sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, key, encrypted_value, scope, scope_id, description, version, created_at, updated_at, created_by, updated_by
+		SELECT id, key, encrypted_value, secret_type, COALESCE(target, key), scope, scope_id, description, version, created_at, updated_at, created_by, updated_by
 		FROM secrets WHERE key = ? AND scope = ? AND scope_id = ?
 	`, key, scope, scopeID).Scan(
-		&secret.ID, &secret.Key, &secret.EncryptedValue, &secret.Scope, &secret.ScopeID,
+		&secret.ID, &secret.Key, &secret.EncryptedValue, &secret.SecretType, &target,
+		&secret.Scope, &secret.ScopeID,
 		&secret.Description, &secret.Version,
 		&secret.Created, &secret.Updated, &secret.CreatedBy, &secret.UpdatedBy,
 	)
@@ -2221,6 +2237,10 @@ func (s *SQLiteStore) GetSecret(ctx context.Context, key, scope, scopeID string)
 		return nil, err
 	}
 
+	if target.Valid {
+		secret.Target = target.String
+	}
+
 	return secret, nil
 }
 
@@ -2228,12 +2248,20 @@ func (s *SQLiteStore) UpdateSecret(ctx context.Context, secret *store.Secret) er
 	secret.Updated = time.Now()
 	secret.Version++ // Increment version on each update
 
+	if secret.SecretType == "" {
+		secret.SecretType = store.SecretTypeEnvironment
+	}
+	if secret.Target == "" {
+		secret.Target = secret.Key
+	}
+
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE secrets SET
-			encrypted_value = ?, description = ?, version = ?, updated_at = ?, updated_by = ?
+			encrypted_value = ?, secret_type = ?, target = ?, description = ?, version = ?, updated_at = ?, updated_by = ?
 		WHERE key = ? AND scope = ? AND scope_id = ?
 	`,
-		secret.EncryptedValue, secret.Description, secret.Version, secret.Updated, secret.UpdatedBy,
+		secret.EncryptedValue, secret.SecretType, nullableString(secret.Target),
+		secret.Description, secret.Version, secret.Updated, secret.UpdatedBy,
 		secret.Key, secret.Scope, secret.ScopeID,
 	)
 	if err != nil {
@@ -2311,6 +2339,10 @@ func (s *SQLiteStore) ListSecrets(ctx context.Context, filter store.SecretFilter
 		conditions = append(conditions, "key = ?")
 		args = append(args, filter.Key)
 	}
+	if filter.Type != "" {
+		conditions = append(conditions, "secret_type = ?")
+		args = append(args, filter.Type)
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {
@@ -2319,7 +2351,7 @@ func (s *SQLiteStore) ListSecrets(ctx context.Context, filter store.SecretFilter
 
 	// Note: We do NOT select encrypted_value for listing
 	query := fmt.Sprintf(`
-		SELECT id, key, scope, scope_id, description, version, created_at, updated_at, created_by, updated_by
+		SELECT id, key, secret_type, COALESCE(target, key), scope, scope_id, description, version, created_at, updated_at, created_by, updated_by
 		FROM secrets %s ORDER BY key
 	`, whereClause)
 
@@ -2332,12 +2364,17 @@ func (s *SQLiteStore) ListSecrets(ctx context.Context, filter store.SecretFilter
 	var secrets []store.Secret
 	for rows.Next() {
 		var secret store.Secret
+		var target sql.NullString
 		if err := rows.Scan(
-			&secret.ID, &secret.Key, &secret.Scope, &secret.ScopeID,
+			&secret.ID, &secret.Key, &secret.SecretType, &target,
+			&secret.Scope, &secret.ScopeID,
 			&secret.Description, &secret.Version,
 			&secret.Created, &secret.Updated, &secret.CreatedBy, &secret.UpdatedBy,
 		); err != nil {
 			return nil, err
+		}
+		if target.Valid {
+			secret.Target = target.String
 		}
 		secrets = append(secrets, secret)
 	}

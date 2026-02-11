@@ -43,6 +43,20 @@ func (r *DockerRuntime) Name() string {
 }
 
 func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, error) {
+	// Stage file and variable secrets before building args
+	var secretMountSpecs []string
+	if config.HomeDir != "" && len(config.ResolvedSecrets) > 0 {
+		mounts, err := writeFileSecrets(config.HomeDir, config.ResolvedSecrets)
+		if err != nil {
+			return "", fmt.Errorf("failed to stage file secrets: %w", err)
+		}
+		secretMountSpecs = mounts
+
+		if err := writeVariableSecrets(config.HomeDir, config.ResolvedSecrets); err != nil {
+			return "", fmt.Errorf("failed to write variable secrets: %w", err)
+		}
+	}
+
 	args, err := buildCommonRunArgs(config)
 	if err != nil {
 		return "", err
@@ -78,6 +92,11 @@ func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, erro
 	}
 
 	newArgs = append(newArgs, args[1:]...)
+
+	// Add bind-mount flags for file secrets (spec format: "hostPath:containerPath:ro")
+	for _, spec := range secretMountSpecs {
+		newArgs = append(newArgs, "-v", spec)
+	}
 
 	out, err := runSimpleCommand(ctx, r.Command, newArgs...)
 	if err != nil {

@@ -163,20 +163,31 @@ type AgentInfo struct {
 	StateVersion int64 `json:"stateVersion,omitempty"` // Version for concurrent update detection
 }
 
+// ResolvedSecret represents a secret that has been resolved from the Hub
+// and is ready for projection into an agent container.
+type ResolvedSecret struct {
+	Name   string `json:"name"`           // Secret key name
+	Type   string `json:"type"`           // environment, variable, file
+	Target string `json:"target"`         // Projection target (env var name, json key, or file path)
+	Value  string `json:"value"`          // Decrypted secret value
+	Source string `json:"source"`         // Scope that provided this secret (user, grove, runtime_broker)
+}
+
 type StartOptions struct {
-	Name      string
-	Task      string
-	Template  string
-	Profile   string
-	Image     string
-	GrovePath string
-	Env       map[string]string
-	Detached  *bool
-	Resume    bool
-	Auth      AuthProvider
-	NoAuth    bool
-	Branch    string
-	Workspace string
+	Name            string
+	Task            string
+	Template        string
+	Profile         string
+	Image           string
+	GrovePath       string
+	Env             map[string]string
+	ResolvedSecrets []ResolvedSecret
+	Detached        *bool
+	Resume          bool
+	Auth            AuthProvider
+	NoAuth          bool
+	Branch          string
+	Workspace       string
 }
 
 type StatusEvent struct {

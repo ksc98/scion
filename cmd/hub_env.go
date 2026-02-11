@@ -249,6 +249,29 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// When --secret flag is set, redirect to the Secret API instead of Env API
+	if envSecret {
+		secretReq := &hubclient.SetSecretRequest{
+			Value:   value,
+			Scope:   scope,
+			ScopeID: scopeID,
+			Type:    "environment",
+			Target:  key,
+		}
+
+		secretResp, err := client.Secrets().Set(ctx, key, secretReq)
+		if err != nil {
+			return fmt.Errorf("failed to set secret: %w", err)
+		}
+
+		action := "Updated"
+		if secretResp.Created {
+			action = "Created"
+		}
+		fmt.Printf("%s %s=******** (scope: %s) (secret)\n", action, key, scope)
+		return nil
+	}
+
 	req := &hubclient.SetEnvRequest{
 		Value:         value,
 		Scope:         scope,
@@ -263,7 +286,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	}
 
 	displayValue := value
-	if envSecret || (resp.EnvVar != nil && resp.EnvVar.Sensitive) {
+	if resp.EnvVar != nil && resp.EnvVar.Sensitive {
 		displayValue = "********"
 	}
 
@@ -279,9 +302,6 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 			annotations += " (always)"
 		} else {
 			annotations += " (as-needed)"
-		}
-		if resp.EnvVar.Secret {
-			annotations += " (secret)"
 		}
 	}
 

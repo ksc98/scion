@@ -179,6 +179,9 @@ type RemoteCreateAgentRequest struct {
 	UserID      string             `json:"userId,omitempty"`
 	Config      *RemoteAgentConfig `json:"config,omitempty"`
 	ResolvedEnv map[string]string  `json:"resolvedEnv,omitempty"`
+	// ResolvedSecrets contains type-aware secrets resolved by the Hub.
+	// These are projected into the agent container based on their type.
+	ResolvedSecrets []ResolvedSecret `json:"resolvedSecrets,omitempty"`
 	HubEndpoint string             `json:"hubEndpoint,omitempty"`
 	AgentToken  string             `json:"agentToken,omitempty"`
 	// Attach indicates the agent should start in interactive attach mode (not detached).
@@ -189,6 +192,15 @@ type RemoteCreateAgentRequest struct {
 	// WorkspaceStoragePath is the GCS storage path for bootstrapped workspaces.
 	// When set, the broker downloads the workspace from GCS instead of using GrovePath.
 	WorkspaceStoragePath string `json:"workspaceStoragePath,omitempty"`
+}
+
+// ResolvedSecret represents a secret resolved by the Hub for projection into an agent container.
+type ResolvedSecret struct {
+	Name   string `json:"name"`   // Secret key name
+	Type   string `json:"type"`   // environment, variable, file
+	Target string `json:"target"` // Projection target
+	Value  string `json:"value"`  // Decrypted secret value
+	Source string `json:"source"` // Scope that provided this secret
 }
 
 // RemoteAgentConfig contains agent configuration for remote creation.

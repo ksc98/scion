@@ -272,6 +272,8 @@ type EnvVar struct {
 type Secret struct {
 	ID          string    `json:"id"`
 	Key         string    `json:"key"`
+	SecretType  string    `json:"type"`
+	Target      string    `json:"target,omitempty"`
 	Scope       string    `json:"scope"`
 	ScopeID     string    `json:"scopeId"`
 	Description string    `json:"description,omitempty"`
