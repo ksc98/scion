@@ -286,9 +286,16 @@ func (s *LocalPTYSession) readFromWebSocket() error {
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
-			// Resize is handled by sending escape sequence to tmux
-			// For now, log it
-			slog.Debug("PTY Resize", "agentID", s.agentID, "cols", msg.Cols, "rows", msg.Rows)
+			if s.ptyMaster != nil {
+				if err := pty.Setsize(s.ptyMaster, &pty.Winsize{
+					Cols: uint16(msg.Cols),
+					Rows: uint16(msg.Rows),
+				}); err != nil {
+					slog.Debug("PTY resize failed", "agentID", s.agentID, "error", err)
+				} else {
+					slog.Debug("PTY resized", "agentID", s.agentID, "cols", msg.Cols, "rows", msg.Rows)
+				}
+			}
 		}
 	}
 }

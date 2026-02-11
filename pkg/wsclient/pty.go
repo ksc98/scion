@@ -237,9 +237,31 @@ func (c *PTYClient) setupTerminal() error {
 	return nil
 }
 
+// terminalResetSequences are escape sequences to undo terminal mode changes
+// that tmux (or other programs) may have applied. In the WebSocket PTY path,
+// these cleanup sequences can be lost if the connection closes before they're
+// fully flushed, or if the session ends abruptly (e.g., tmux detach).
+var terminalResetSequences = strings.Join([]string{
+	"\x1b[?1049l", // Exit alternate screen buffer (rmcup)
+	"\x1b[?25h",   // Show cursor (cnorm)
+	"\x1b[r",      // Reset scroll region to full window
+	"\x1b[?1000l", // Disable mouse click tracking
+	"\x1b[?1002l", // Disable mouse drag tracking
+	"\x1b[?1003l", // Disable mouse all-motion tracking
+	"\x1b[?1006l", // Disable SGR mouse mode
+	"\x1b[?2004l", // Disable bracketed paste mode
+}, "")
+
 // restoreTerminal restores the terminal to its original state.
+// It writes escape sequences to undo any terminal mode changes that may have
+// been applied by programs running in the PTY session (e.g., tmux), then
+// restores the original termios state.
 func (c *PTYClient) restoreTerminal() {
 	if c.termState != nil {
+		// Write reset sequences before restoring termios, while stdout is
+		// still connected. These are idempotent — sending them when the
+		// modes are already off is harmless.
+		os.Stdout.Write([]byte(terminalResetSequences))
 		term.Restore(c.oldFd, c.termState)
 	}
 }
