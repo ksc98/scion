@@ -114,6 +114,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     python3-venv \
     lsb-release \
+    chromium \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -146,6 +147,9 @@ ENV PATH=/usr/local/share/npm-global/bin:/usr/local/go/bin:/usr/local/gcloud/goo
 ENV LC_ALL=C.UTF-8
 ENV EDITOR=nano
 ENV VISUAL=nano
+
+# Install Chrome DevTools MCP server globally
+RUN npm install -g chrome-devtools-mcp
 
 # Default to bash - no scion-specific entrypoint
 CMD ["bash"]
