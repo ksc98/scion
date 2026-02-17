@@ -347,6 +347,14 @@ export class ScionPageAgentDetail extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    // SSR property bindings (.agentId=) aren't restored during client-side
+    // hydration for top-level page components. Fall back to URL parsing.
+    if (!this.agentId && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/agents\/([^/]+)/);
+      if (match) {
+        this.agentId = match[1];
+      }
+    }
     void this.loadData();
   }
 

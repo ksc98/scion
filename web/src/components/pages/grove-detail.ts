@@ -326,6 +326,14 @@ export class ScionPageGroveDetail extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    // SSR property bindings (.groveId=) aren't restored during client-side
+    // hydration for top-level page components. Fall back to URL parsing.
+    if (!this.groveId && typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/\/groves\/([^/]+)/);
+      if (match) {
+        this.groveId = match[1];
+      }
+    }
     void this.loadData();
   }
 
