@@ -625,18 +625,18 @@ User: scion start researcher --broker prod-gke "analyze auth module"
 4. ~~Add help text for file-type secrets guiding users to `scion hub secret set --type file`~~
 5. ~~Tests for interactive flow (mock stdin)~~
 
-### Phase 4: K8s Native Secret Mounting
+### Phase 4: K8s Native Secret Mounting — **Completed**
 
-1. Add `GKE` field to `V1RuntimeConfig` in `pkg/config/settings_v1.go`
-2. **GKE path:** Add `SecretProviderClass` CRD generation to `KubernetesRuntime`
-3. **GKE path:** Modify `buildPod()` to use CSI volume and `secretObjects` sync for env vars
-4. **Fallback path:** Add `createAgentSecret()` method for K8s Secret object creation
-5. **Fallback path:** Modify `buildPod()` to use `secretKeyRef` for env secrets and volume mounts for file secrets
-6. Add secret/SPC cleanup to `Delete()` method (label-based) and `Run()` error path
-7. Remove M1 hardcoded auth injection (with deprecation notice)
-8. Plumb `Ref` field from Hub dispatch through to runtime for GKE path
-9. Add Kubernetes runtime documentation for `gke` flag and secret setup
-10. Tests for pod spec generation with both strategies
+1. ~~Add `GKE` field to `V1RuntimeConfig` in `pkg/config/settings_v1.go`~~
+2. ~~**GKE path:** Add `SecretProviderClass` CRD generation to `KubernetesRuntime`~~
+3. ~~**GKE path:** Modify `buildPod()` to use CSI volume and `secretObjects` sync for env vars~~
+4. ~~**Fallback path:** Add `createAgentSecret()` method for K8s Secret object creation~~
+5. ~~**Fallback path:** Modify `buildPod()` to use `secretKeyRef` for env secrets and volume mounts for file secrets~~
+6. ~~Add secret/SPC cleanup to `Delete()` method (label-based) and `Run()` error path~~
+7. ~~Remove M1 hardcoded auth injection (with deprecation notice)~~
+8. ~~Plumb `Ref` field from Hub dispatch through to runtime for GKE path~~
+9. ~~Add Kubernetes runtime documentation for `gke` flag and secret setup~~
+10. ~~Tests for pod spec generation with both strategies~~
 
 ---
 
