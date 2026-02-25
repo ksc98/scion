@@ -24,6 +24,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/hubsync"
 	"github.com/ptone/scion-agent/pkg/runtime"
@@ -79,16 +80,14 @@ arguments are provided, an empty prompt.md is created for later editing.`,
 			Workspace:     workspace,
 		}
 
-		// Check if container already exists
-
-		agents, err := rt.List(context.Background(), nil)
-		if err == nil {
-			for _, a := range agents {
-				if a.ID == agentName || a.Name == agentName {
-					fmt.Fprintf(os.Stderr, "Agent container '%s' already exists (Status: %s).\n", agentName, a.Status)
-					// We continue to check directory
-				}
-			}
+		// Check if agent already exists (directory on disk or running container)
+		projectDir, err := config.GetResolvedProjectDir(grovePath)
+		if err != nil {
+			return err
+		}
+		agentDir := filepath.Join(projectDir, "agents", agentName)
+		if _, err := os.Stat(agentDir); err == nil {
+			return fmt.Errorf("agent '%s' already exists. Use 'scion delete %s' first to recreate it", agentName, agentName)
 		}
 
 		_, err = mgr.Provision(context.Background(), opts)
