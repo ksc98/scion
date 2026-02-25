@@ -386,7 +386,7 @@ export class ScionPageBrokers extends LitElement {
               <sl-icon name="hdd-rack"></sl-icon>
               ${broker.name}
             </h3>
-            <div class="broker-version">v${broker.version}</div>
+            ${broker.version ? html`<div class="broker-version">v${broker.version}</div>` : ''}
           </div>
           <scion-status-badge
             status=${this.getStatusVariant(broker.status)}
