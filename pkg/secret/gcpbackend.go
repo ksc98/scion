@@ -108,13 +108,7 @@ func (b *GCPBackend) Set(ctx context.Context, input *SetSecretInput) (bool, *Sec
 							Automatic: &smpb.Replication_Automatic{},
 						},
 					},
-					Labels: map[string]string{
-						"scion-scope":    sanitizeLabel(input.Scope),
-						"scion-scope-id": sanitizeLabel(input.ScopeID),
-						"scion-type":     sanitizeLabel(input.SecretType),
-						"scion-name":     sanitizeLabel(input.Name),
-						"scion-target":   sanitizeLabel(target),
-					},
+					Labels: buildLabels(input, target),
 				},
 			})
 			if err != nil {
@@ -314,5 +308,21 @@ func sanitizeLabel(s string) string {
 		s = s[:63]
 	}
 	return s
+}
+
+// buildLabels constructs the GCP SM labels map for a secret.
+// For user-scoped secrets with a known email, a scion-userid label is added.
+func buildLabels(input *SetSecretInput, target string) map[string]string {
+	labels := map[string]string{
+		"scion-scope":    sanitizeLabel(input.Scope),
+		"scion-scope-id": sanitizeLabel(input.ScopeID),
+		"scion-type":     sanitizeLabel(input.SecretType),
+		"scion-name":     sanitizeLabel(input.Name),
+		"scion-target":   sanitizeLabel(target),
+	}
+	if input.Scope == ScopeUser && input.UserEmail != "" {
+		labels["scion-userid"] = sanitizeLabel(input.UserEmail)
+	}
+	return labels
 }
 

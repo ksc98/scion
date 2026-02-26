@@ -464,6 +464,7 @@ func TestGCPBackend_Labels(t *testing.T) {
 		Target:     "ANTHROPIC_API_KEY",
 		Scope:      ScopeUser,
 		ScopeID:    "user-1",
+		UserEmail:  "alice@example.com",
 	}
 
 	_, _, err := backend.Set(ctx, input)
@@ -487,6 +488,7 @@ func TestGCPBackend_Labels(t *testing.T) {
 			"scion-type":     "environment",
 			"scion-name":     "api_key",
 			"scion-target":   "anthropic_api_key",
+			"scion-userid":   "alice-example-com",
 		}
 		for k, expected := range expectedLabels {
 			got, ok := labels[k]
@@ -499,6 +501,45 @@ func TestGCPBackend_Labels(t *testing.T) {
 		if len(labels) != len(expectedLabels) {
 			t.Errorf("expected %d labels, got %d: %v", len(expectedLabels), len(labels), labels)
 		}
+	}
+}
+
+func TestGCPBackend_Labels_NoUserIDForNonUserScope(t *testing.T) {
+	backend, mock := createTestGCPBackend(t)
+	ctx := context.Background()
+
+	for _, scope := range []string{ScopeGrove, ScopeRuntimeBroker} {
+		t.Run(scope, func(t *testing.T) {
+			input := &SetSecretInput{
+				Name:       "KEY_" + scope,
+				Value:      "value",
+				SecretType: TypeEnvironment,
+				Scope:      scope,
+				ScopeID:    scope + "-1",
+				UserEmail:  "should-be-ignored@example.com",
+			}
+
+			_, _, err := backend.Set(ctx, input)
+			if err != nil {
+				t.Fatalf("Set failed: %v", err)
+			}
+
+			mock.mu.Lock()
+			smName := backend.gcpSecretName(input.Name, scope, scope+"-1")
+			fullName := fmt.Sprintf("projects/test-project/secrets/%s", smName)
+			sec, ok := mock.secrets[fullName]
+			mock.mu.Unlock()
+
+			if !ok {
+				t.Fatalf("secret not found in mock: %s", fullName)
+			}
+			if _, exists := sec.Labels["scion-userid"]; exists {
+				t.Errorf("scion-userid label should not be present for scope %q", scope)
+			}
+			if len(sec.Labels) != 5 {
+				t.Errorf("expected 5 labels for scope %q, got %d: %v", scope, len(sec.Labels), sec.Labels)
+			}
+		})
 	}
 }
 

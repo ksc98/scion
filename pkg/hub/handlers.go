@@ -4470,6 +4470,9 @@ func (s *Server) setSecret(w http.ResponseWriter, r *http.Request, key string) {
 	if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
 		input.CreatedBy = userIdent.ID()
 		input.UpdatedBy = userIdent.ID()
+		if scope == store.ScopeUser {
+			input.UserEmail = userIdent.Email()
+		}
 	}
 
 	created, meta, err := s.secretBackend.Set(ctx, input)

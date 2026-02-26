@@ -84,6 +84,7 @@ type SetSecretInput struct {
 	Description string // Optional description
 	CreatedBy   string // User ID of creator (for new secrets)
 	UpdatedBy   string // User ID of updater
+	UserEmail   string // Email of the user (for labeling user-scoped secrets)
 }
 
 // SecretBackend defines the interface for secret storage operations.
