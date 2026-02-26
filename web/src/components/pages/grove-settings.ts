@@ -24,6 +24,8 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import type { PageData, Grove } from '../../shared/types.js';
+import { can } from '../../shared/types.js';
+import { apiFetch } from '../../client/api.js';
 
 @customElement('scion-page-grove-settings')
 export class ScionPageGroveSettings extends LitElement {
@@ -230,9 +232,7 @@ export class ScionPageGroveSettings extends LitElement {
     this.error = null;
 
     try {
-      const response = await fetch(`/api/v1/groves/${this.groveId}`, {
-        credentials: 'include',
-      });
+      const response = await apiFetch(`/api/v1/groves/${this.groveId}`);
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as { message?: string };
@@ -264,9 +264,8 @@ export class ScionPageGroveSettings extends LitElement {
 
     try {
       const params = this.deleteAlsoAgents ? '?deleteAgents=true' : '';
-      const response = await fetch(`/api/v1/groves/${this.groveId}${params}`, {
+      const response = await apiFetch(`/api/v1/groves/${this.groveId}${params}`, {
         method: 'DELETE',
-        credentials: 'include',
       });
 
       if (!response.ok && response.status !== 204) {
@@ -305,42 +304,49 @@ export class ScionPageGroveSettings extends LitElement {
         <h1>${this.grove.name} Settings</h1>
       </div>
 
-      <div class="section danger-section">
-        <h2>Danger Zone</h2>
-        <p>Irreversible actions that affect this grove and its resources.</p>
+      ${can(this.grove._capabilities, 'delete') ? html`
+        <div class="section danger-section">
+          <h2>Danger Zone</h2>
+          <p>Irreversible actions that affect this grove and its resources.</p>
 
-        <div class="delete-area">
-          <div class="delete-info">
-            <h3>Delete this grove</h3>
-            <p>
-              Permanently remove this grove and its configuration.
-              This action cannot be undone.
-            </p>
-          </div>
-          <div class="delete-actions">
-            <label class="checkbox-label">
-              <input
-                type="checkbox"
-                .checked=${this.deleteAlsoAgents}
-                @change=${(e: Event) => {
-                  this.deleteAlsoAgents = (e.target as HTMLInputElement).checked;
-                }}
-              />
-              Also delete all agents
-            </label>
-            <sl-button
-              variant="danger"
-              size="small"
-              ?loading=${this.deleteLoading}
-              ?disabled=${this.deleteLoading}
-              @click=${() => this.handleDeleteGrove()}
-            >
-              <sl-icon slot="prefix" name="trash"></sl-icon>
-              Delete Grove
-            </sl-button>
+          <div class="delete-area">
+            <div class="delete-info">
+              <h3>Delete this grove</h3>
+              <p>
+                Permanently remove this grove and its configuration.
+                This action cannot be undone.
+              </p>
+            </div>
+            <div class="delete-actions">
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  .checked=${this.deleteAlsoAgents}
+                  @change=${(e: Event) => {
+                    this.deleteAlsoAgents = (e.target as HTMLInputElement).checked;
+                  }}
+                />
+                Also delete all agents
+              </label>
+              <sl-button
+                variant="danger"
+                size="small"
+                ?loading=${this.deleteLoading}
+                ?disabled=${this.deleteLoading}
+                @click=${() => this.handleDeleteGrove()}
+              >
+                <sl-icon slot="prefix" name="trash"></sl-icon>
+                Delete Grove
+              </sl-button>
+            </div>
           </div>
         </div>
-      </div>
+      ` : html`
+        <div class="section">
+          <h2>Permissions</h2>
+          <p>You don't have permission to modify this grove.</p>
+        </div>
+      `}
     `;
   }
 

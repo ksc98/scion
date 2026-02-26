@@ -20,10 +20,12 @@
  * Displays all agents across all groves with their status
  */
 
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
-import type { PageData, Agent } from '../../shared/types.js';
+import type { PageData, Agent, Capabilities } from '../../shared/types.js';
+import { can } from '../../shared/types.js';
+import { apiFetch } from '../../client/api.js';
 import { stateManager } from '../../client/state.js';
 import '../shared/status-badge.js';
 
@@ -58,6 +60,12 @@ export class ScionPageAgents extends LitElement {
    */
   @state()
   private actionLoading: Record<string, boolean> = {};
+
+  /**
+   * Scope-level capabilities from the agents list response
+   */
+  @state()
+  private scopeCapabilities: Capabilities | undefined;
 
   static override styles = css`
     :host {
@@ -265,17 +273,21 @@ export class ScionPageAgents extends LitElement {
     this.error = null;
 
     try {
-      const response = await fetch('/api/v1/agents', {
-        credentials: 'include',
-      });
+      const response = await apiFetch('/api/v1/agents');
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as { message?: string };
         throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = (await response.json()) as { agents?: Agent[] } | Agent[];
-      this.agents = Array.isArray(data) ? data : data.agents || [];
+      const data = (await response.json()) as { agents?: Agent[]; _capabilities?: Capabilities } | Agent[];
+      if (Array.isArray(data)) {
+        this.agents = data;
+        this.scopeCapabilities = undefined;
+      } else {
+        this.agents = data.agents || [];
+        this.scopeCapabilities = data._capabilities;
+      }
     } catch (err) {
       console.error('Failed to load agents:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load agents';
@@ -311,15 +323,13 @@ export class ScionPageAgents extends LitElement {
 
       switch (action) {
         case 'start':
-          response = await fetch(`/api/v1/agents/${agentId}/start`, {
+          response = await apiFetch(`/api/v1/agents/${agentId}/start`, {
             method: 'POST',
-            credentials: 'include',
           });
           break;
         case 'stop':
-          response = await fetch(`/api/v1/agents/${agentId}/stop`, {
+          response = await apiFetch(`/api/v1/agents/${agentId}/stop`, {
             method: 'POST',
-            credentials: 'include',
           });
           break;
         case 'delete':
@@ -327,9 +337,8 @@ export class ScionPageAgents extends LitElement {
             this.actionLoading = { ...this.actionLoading, [agentId]: false };
             return;
           }
-          response = await fetch(`/api/v1/agents/${agentId}`, {
+          response = await apiFetch(`/api/v1/agents/${agentId}`, {
             method: 'DELETE',
-            credentials: 'include',
           });
           break;
       }
@@ -353,12 +362,14 @@ export class ScionPageAgents extends LitElement {
     return html`
       <div class="header">
         <h1>Agents</h1>
-        <a href="/agents/new" style="text-decoration: none;">
-          <sl-button variant="primary" size="small">
-            <sl-icon slot="prefix" name="plus-lg"></sl-icon>
-            New Agent
-          </sl-button>
-        </a>
+        ${can(this.scopeCapabilities, 'create') ? html`
+          <a href="/agents/new" style="text-decoration: none;">
+            <sl-button variant="primary" size="small">
+              <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+              New Agent
+            </sl-button>
+          </a>
+        ` : nothing}
       </div>
 
       ${this.loading ? this.renderLoading() : this.error ? this.renderError() : this.renderAgents()}
@@ -405,15 +416,16 @@ export class ScionPageAgents extends LitElement {
         <sl-icon name="cpu"></sl-icon>
         <h2>No Agents Found</h2>
         <p>
-          Agents are AI-powered workers that can help you with coding tasks. Create your first agent
-          to get started.
+          Agents are AI-powered workers that can help you with coding tasks.${can(this.scopeCapabilities, 'create') ? ' Create your first agent to get started.' : ''}
         </p>
-        <a href="/agents/new" style="text-decoration: none;">
-          <sl-button variant="primary">
-            <sl-icon slot="prefix" name="plus-lg"></sl-icon>
-            Create Agent
-          </sl-button>
-        </a>
+        ${can(this.scopeCapabilities, 'create') ? html`
+          <a href="/agents/new" style="text-decoration: none;">
+            <sl-button variant="primary">
+              <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+              Create Agent
+            </sl-button>
+          </a>
+        ` : nothing}
       </div>
     `;
   }
@@ -447,17 +459,19 @@ export class ScionPageAgents extends LitElement {
         ${agent.taskSummary ? html` <div class="agent-task">${agent.taskSummary}</div> ` : ''}
 
         <div class="agent-actions">
-          <sl-button
-            variant="primary"
-            size="small"
-            href="/agents/${agent.id}/terminal"
-            ?disabled=${agent.status !== 'running'}
-          >
-            <sl-icon slot="prefix" name="terminal"></sl-icon>
-            Terminal
-          </sl-button>
+          ${can(agent._capabilities, 'attach') ? html`
+            <sl-button
+              variant="primary"
+              size="small"
+              href="/agents/${agent.id}/terminal"
+              ?disabled=${agent.status !== 'running'}
+            >
+              <sl-icon slot="prefix" name="terminal"></sl-icon>
+              Terminal
+            </sl-button>
+          ` : nothing}
           ${agent.status === 'running'
-            ? html`
+            ? can(agent._capabilities, 'stop') ? html`
                 <sl-button
                   variant="danger"
                   size="small"
@@ -469,8 +483,8 @@ export class ScionPageAgents extends LitElement {
                   <sl-icon slot="prefix" name="stop-circle"></sl-icon>
                   Stop
                 </sl-button>
-              `
-            : html`
+              ` : nothing
+            : can(agent._capabilities, 'start') ? html`
                 <sl-button
                   variant="success"
                   size="small"
@@ -482,17 +496,19 @@ export class ScionPageAgents extends LitElement {
                   <sl-icon slot="prefix" name="play-circle"></sl-icon>
                   Start
                 </sl-button>
-              `}
-          <sl-button
-            variant="default"
-            size="small"
-            outline
-            ?loading=${isLoading}
-            ?disabled=${isLoading}
-            @click=${() => this.handleAgentAction(agent.id, 'delete')}
-          >
-            <sl-icon slot="prefix" name="trash"></sl-icon>
-          </sl-button>
+              ` : nothing}
+          ${can(agent._capabilities, 'delete') ? html`
+            <sl-button
+              variant="default"
+              size="small"
+              outline
+              ?loading=${isLoading}
+              ?disabled=${isLoading}
+              @click=${() => this.handleAgentAction(agent.id, 'delete')}
+            >
+              <sl-icon slot="prefix" name="trash"></sl-icon>
+            </sl-button>
+          ` : nothing}
         </div>
       </div>
     `;

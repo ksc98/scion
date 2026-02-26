@@ -20,10 +20,12 @@
  * Displays a single grove with its agents and settings
  */
 
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
-import type { PageData, Grove, Agent } from '../../shared/types.js';
+import type { PageData, Grove, Agent, Capabilities } from '../../shared/types.js';
+import { can, canAny } from '../../shared/types.js';
+import { apiFetch } from '../../client/api.js';
 import { stateManager } from '../../client/state.js';
 import '../shared/status-badge.js';
 
@@ -70,6 +72,12 @@ export class ScionPageGroveDetail extends LitElement {
    */
   @state()
   private actionLoading: Record<string, boolean> = {};
+
+  /**
+   * Scope-level capabilities from the agents list response
+   */
+  @state()
+  private agentScopeCapabilities: Capabilities | undefined;
 
   /**
    * Workspace files for hub-native groves
@@ -540,8 +548,8 @@ export class ScionPageGroveDetail extends LitElement {
     try {
       // Load grove and agents in parallel
       const [groveResponse, agentsResponse] = await Promise.all([
-        fetch(`/api/v1/groves/${this.groveId}`, { credentials: 'include' }),
-        fetch(`/api/v1/groves/${this.groveId}/agents`, { credentials: 'include' }),
+        apiFetch(`/api/v1/groves/${this.groveId}`),
+        apiFetch(`/api/v1/groves/${this.groveId}/agents`),
       ]);
 
       if (!groveResponse.ok) {
@@ -554,11 +562,18 @@ export class ScionPageGroveDetail extends LitElement {
       this.grove = (await groveResponse.json()) as Grove;
 
       if (agentsResponse.ok) {
-        const agentsData = (await agentsResponse.json()) as { agents?: Agent[] } | Agent[];
-        this.agents = Array.isArray(agentsData) ? agentsData : agentsData.agents || [];
+        const agentsData = (await agentsResponse.json()) as { agents?: Agent[]; _capabilities?: Capabilities } | Agent[];
+        if (Array.isArray(agentsData)) {
+          this.agents = agentsData;
+          this.agentScopeCapabilities = undefined;
+        } else {
+          this.agents = agentsData.agents || [];
+          this.agentScopeCapabilities = agentsData._capabilities;
+        }
       } else {
         // Fallback: if grove-scoped agents endpoint fails, try filtering from all agents
         this.agents = [];
+        this.agentScopeCapabilities = undefined;
       }
 
       // Load workspace files for hub-native groves
@@ -611,9 +626,8 @@ export class ScionPageGroveDetail extends LitElement {
     this.workspaceError = null;
 
     try {
-      const response = await fetch(
-        `/api/v1/groves/${this.groveId}/workspace/files`,
-        { credentials: 'include' }
+      const response = await apiFetch(
+        `/api/v1/groves/${this.groveId}/workspace/files`
       );
 
       if (!response.ok) {
@@ -659,11 +673,10 @@ export class ScionPageGroveDetail extends LitElement {
         formData.append(file.name, file);
       }
 
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/v1/groves/${this.groveId}/workspace/files`,
         {
           method: 'POST',
-          credentials: 'include',
           body: formData,
         }
       );
@@ -695,11 +708,10 @@ export class ScionPageGroveDetail extends LitElement {
         .map((seg) => encodeURIComponent(seg))
         .join('/');
 
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/v1/groves/${this.groveId}/workspace/files/${encodedPath}`,
         {
           method: 'DELETE',
-          credentials: 'include',
         }
       );
 
@@ -735,15 +747,13 @@ export class ScionPageGroveDetail extends LitElement {
 
       switch (action) {
         case 'start':
-          response = await fetch(`/api/v1/agents/${agentId}/start`, {
+          response = await apiFetch(`/api/v1/agents/${agentId}/start`, {
             method: 'POST',
-            credentials: 'include',
           });
           break;
         case 'stop':
-          response = await fetch(`/api/v1/agents/${agentId}/stop`, {
+          response = await apiFetch(`/api/v1/agents/${agentId}/stop`, {
             method: 'POST',
-            credentials: 'include',
           });
           break;
         case 'delete':
@@ -751,9 +761,8 @@ export class ScionPageGroveDetail extends LitElement {
             this.actionLoading = { ...this.actionLoading, [agentId]: false };
             return;
           }
-          response = await fetch(`/api/v1/agents/${agentId}`, {
+          response = await apiFetch(`/api/v1/agents/${agentId}`, {
             method: 'DELETE',
-            credentials: 'include',
           });
           break;
       }
@@ -808,18 +817,22 @@ export class ScionPageGroveDetail extends LitElement {
           <div class="header-path">${this.grove.gitRemote || 'Hub Workspace'}</div>
         </div>
         <div class="header-actions">
-          <a href="/agents/new?groveId=${this.groveId}" style="text-decoration: none;">
-            <sl-button variant="primary" size="small">
-              <sl-icon slot="prefix" name="plus-lg"></sl-icon>
-              New Agent
-            </sl-button>
-          </a>
-          <a href="/groves/${this.groveId}/settings" style="text-decoration: none;">
-            <sl-button size="small">
-              <sl-icon slot="prefix" name="gear"></sl-icon>
-              Settings
-            </sl-button>
-          </a>
+          ${can(this.agentScopeCapabilities, 'create') ? html`
+            <a href="/agents/new?groveId=${this.groveId}" style="text-decoration: none;">
+              <sl-button variant="primary" size="small">
+                <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+                New Agent
+              </sl-button>
+            </a>
+          ` : nothing}
+          ${canAny(this.grove?._capabilities, 'update', 'delete', 'manage') ? html`
+            <a href="/groves/${this.groveId}/settings" style="text-decoration: none;">
+              <sl-button size="small">
+                <sl-icon slot="prefix" name="gear"></sl-icon>
+                Settings
+              </sl-button>
+            </a>
+          ` : nothing}
         </div>
       </div>
 
@@ -868,25 +881,27 @@ export class ScionPageGroveDetail extends LitElement {
               ${this.workspaceFiles.length} file${this.workspaceFiles.length !== 1 ? 's' : ''}${this.workspaceTotalSize > 0 ? ` (${this.formatFileSize(this.workspaceTotalSize)})` : ''}
             </span>
           </div>
-          <div>
-            <input
-              type="file"
-              id="workspace-file-input"
-              multiple
-              style="display: none"
-              @change=${this.handleFileUpload}
-            />
-            <sl-button
-              size="small"
-              variant="default"
-              ?loading=${this.uploadProgress}
-              ?disabled=${this.uploadProgress}
-              @click=${() => this.handleUploadClick()}
-            >
-              <sl-icon slot="prefix" name="upload"></sl-icon>
-              Upload Files
-            </sl-button>
-          </div>
+          ${can(this.grove?._capabilities, 'update') ? html`
+            <div>
+              <input
+                type="file"
+                id="workspace-file-input"
+                multiple
+                style="display: none"
+                @change=${this.handleFileUpload}
+              />
+              <sl-button
+                size="small"
+                variant="default"
+                ?loading=${this.uploadProgress}
+                ?disabled=${this.uploadProgress}
+                @click=${() => this.handleUploadClick()}
+              >
+                <sl-icon slot="prefix" name="upload"></sl-icon>
+                Upload Files
+              </sl-button>
+            </div>
+          ` : nothing}
         </div>
 
         ${this.workspaceError
@@ -904,17 +919,19 @@ export class ScionPageGroveDetail extends LitElement {
             ? html`
                 <div class="workspace-empty">
                   <sl-icon name="file-earmark"></sl-icon>
-                  <p>No files in workspace. Upload files to seed this grove.</p>
-                  <sl-button
-                    size="small"
-                    variant="primary"
-                    ?loading=${this.uploadProgress}
-                    ?disabled=${this.uploadProgress}
-                    @click=${() => this.handleUploadClick()}
-                  >
-                    <sl-icon slot="prefix" name="upload"></sl-icon>
-                    Upload Files
-                  </sl-button>
+                  <p>No files in workspace.${can(this.grove?._capabilities, 'update') ? ' Upload files to seed this grove.' : ''}</p>
+                  ${can(this.grove?._capabilities, 'update') ? html`
+                    <sl-button
+                      size="small"
+                      variant="primary"
+                      ?loading=${this.uploadProgress}
+                      ?disabled=${this.uploadProgress}
+                      @click=${() => this.handleUploadClick()}
+                    >
+                      <sl-icon slot="prefix" name="upload"></sl-icon>
+                      Upload Files
+                    </sl-button>
+                  ` : nothing}
                 </div>
               `
             : html`
@@ -942,11 +959,13 @@ export class ScionPageGroveDetail extends LitElement {
                             <span class="file-date">${this.formatDate(file.modTime)}</span>
                           </td>
                           <td class="file-actions">
-                            <sl-icon-button
-                              name="trash"
-                              label="Delete ${file.path}"
-                              @click=${() => this.handleFileDelete(file.path)}
-                            ></sl-icon-button>
+                            ${can(this.grove?._capabilities, 'update') ? html`
+                              <sl-icon-button
+                                name="trash"
+                                label="Delete ${file.path}"
+                                @click=${() => this.handleFileDelete(file.path)}
+                              ></sl-icon-button>
+                            ` : nothing}
                           </td>
                         </tr>
                       `
@@ -992,13 +1011,15 @@ export class ScionPageGroveDetail extends LitElement {
       <div class="empty-state">
         <sl-icon name="cpu"></sl-icon>
         <h2>No Agents</h2>
-        <p>This grove doesn't have any agents yet. Create your first agent to get started.</p>
-        <a href="/agents/new?groveId=${this.groveId}" style="text-decoration: none;">
-          <sl-button variant="primary">
-            <sl-icon slot="prefix" name="plus-lg"></sl-icon>
-            New Agent
-          </sl-button>
-        </a>
+        <p>This grove doesn't have any agents yet.${can(this.agentScopeCapabilities, 'create') ? ' Create your first agent to get started.' : ''}</p>
+        ${can(this.agentScopeCapabilities, 'create') ? html`
+          <a href="/agents/new?groveId=${this.groveId}" style="text-decoration: none;">
+            <sl-button variant="primary">
+              <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+              New Agent
+            </sl-button>
+          </a>
+        ` : nothing}
       </div>
     `;
   }
@@ -1034,17 +1055,19 @@ export class ScionPageGroveDetail extends LitElement {
         ${agent.taskSummary ? html`<div class="agent-task">${agent.taskSummary}</div>` : ''}
 
         <div class="agent-actions">
-          <sl-button
-            variant="primary"
-            size="small"
-            href="/agents/${agent.id}/terminal"
-            ?disabled=${agent.status !== 'running'}
-          >
-            <sl-icon slot="prefix" name="terminal"></sl-icon>
-            Terminal
-          </sl-button>
+          ${can(agent._capabilities, 'attach') ? html`
+            <sl-button
+              variant="primary"
+              size="small"
+              href="/agents/${agent.id}/terminal"
+              ?disabled=${agent.status !== 'running'}
+            >
+              <sl-icon slot="prefix" name="terminal"></sl-icon>
+              Terminal
+            </sl-button>
+          ` : nothing}
           ${agent.status === 'running'
-            ? html`
+            ? can(agent._capabilities, 'stop') ? html`
                 <sl-button
                   variant="danger"
                   size="small"
@@ -1056,8 +1079,8 @@ export class ScionPageGroveDetail extends LitElement {
                   <sl-icon slot="prefix" name="stop-circle"></sl-icon>
                   Stop
                 </sl-button>
-              `
-            : html`
+              ` : nothing
+            : can(agent._capabilities, 'start') ? html`
                 <sl-button
                   variant="success"
                   size="small"
@@ -1069,17 +1092,19 @@ export class ScionPageGroveDetail extends LitElement {
                   <sl-icon slot="prefix" name="play-circle"></sl-icon>
                   Start
                 </sl-button>
-              `}
-          <sl-button
-            variant="default"
-            size="small"
-            outline
-            ?loading=${isLoading}
-            ?disabled=${isLoading}
-            @click=${() => this.handleAgentAction(agent.id, 'delete')}
-          >
-            <sl-icon slot="prefix" name="trash"></sl-icon>
-          </sl-button>
+              ` : nothing}
+          ${can(agent._capabilities, 'delete') ? html`
+            <sl-button
+              variant="default"
+              size="small"
+              outline
+              ?loading=${isLoading}
+              ?disabled=${isLoading}
+              @click=${() => this.handleAgentAction(agent.id, 'delete')}
+            >
+              <sl-icon slot="prefix" name="trash"></sl-icon>
+            </sl-button>
+          ` : nothing}
         </div>
       </div>
     `;

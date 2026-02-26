@@ -20,10 +20,12 @@
  * Displays detailed information about a single agent
  */
 
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import type { PageData, Agent, Grove } from '../../shared/types.js';
+import { can } from '../../shared/types.js';
+import { apiFetch } from '../../client/api.js';
 import { stateManager } from '../../client/state.js';
 import '../shared/status-badge.js';
 
@@ -438,9 +440,7 @@ export class ScionPageAgentDetail extends LitElement {
     this.error = null;
 
     try {
-      const agentResponse = await fetch(`/api/v1/agents/${this.agentId}`, {
-        credentials: 'include',
-      });
+      const agentResponse = await apiFetch(`/api/v1/agents/${this.agentId}`);
 
       if (!agentResponse.ok) {
         const errorData = (await agentResponse.json().catch(() => ({}))) as { message?: string };
@@ -463,9 +463,7 @@ export class ScionPageAgentDetail extends LitElement {
       // Try to load grove info
       if (this.agent.groveId) {
         try {
-          const groveResponse = await fetch(`/api/v1/groves/${this.agent.groveId}`, {
-            credentials: 'include',
-          });
+          const groveResponse = await apiFetch(`/api/v1/groves/${this.agent.groveId}`);
           if (groveResponse.ok) {
             this.grove = (await groveResponse.json()) as Grove;
           }
@@ -547,15 +545,13 @@ export class ScionPageAgentDetail extends LitElement {
 
       switch (action) {
         case 'start':
-          response = await fetch(`/api/v1/agents/${this.agentId}/start`, {
+          response = await apiFetch(`/api/v1/agents/${this.agentId}/start`, {
             method: 'POST',
-            credentials: 'include',
           });
           break;
         case 'stop':
-          response = await fetch(`/api/v1/agents/${this.agentId}/stop`, {
+          response = await apiFetch(`/api/v1/agents/${this.agentId}/stop`, {
             method: 'POST',
-            credentials: 'include',
           });
           break;
         case 'delete':
@@ -563,9 +559,8 @@ export class ScionPageAgentDetail extends LitElement {
             this.actionLoading = false;
             return;
           }
-          response = await fetch(`/api/v1/agents/${this.agentId}`, {
+          response = await apiFetch(`/api/v1/agents/${this.agentId}`, {
             method: 'DELETE',
-            credentials: 'include',
           });
           break;
       }
@@ -632,7 +627,7 @@ export class ScionPageAgentDetail extends LitElement {
         </div>
         <div class="header-actions">
           ${this.agent.status === 'running'
-            ? html`
+            ? can(this.agent._capabilities, 'stop') ? html`
                 <sl-button
                   variant="danger"
                   size="small"
@@ -644,8 +639,8 @@ export class ScionPageAgentDetail extends LitElement {
                   <sl-icon slot="prefix" name="stop-circle"></sl-icon>
                   Stop
                 </sl-button>
-              `
-            : html`
+              ` : nothing
+            : can(this.agent._capabilities, 'start') ? html`
                 <sl-button
                   variant="success"
                   size="small"
@@ -656,17 +651,19 @@ export class ScionPageAgentDetail extends LitElement {
                   <sl-icon slot="prefix" name="play-circle"></sl-icon>
                   Start
                 </sl-button>
-              `}
-          <sl-button
-            variant="danger"
-            size="small"
-            ?loading=${this.actionLoading}
-            ?disabled=${this.actionLoading}
-            @click=${() => this.handleAction('delete')}
-          >
-            <sl-icon slot="prefix" name="trash"></sl-icon>
-            Delete
-          </sl-button>
+              ` : nothing}
+          ${can(this.agent._capabilities, 'delete') ? html`
+            <sl-button
+              variant="danger"
+              size="small"
+              ?loading=${this.actionLoading}
+              ?disabled=${this.actionLoading}
+              @click=${() => this.handleAction('delete')}
+            >
+              <sl-icon slot="prefix" name="trash"></sl-icon>
+              Delete
+            </sl-button>
+          ` : nothing}
         </div>
       </div>
 
@@ -684,14 +681,16 @@ export class ScionPageAgentDetail extends LitElement {
 
       <!-- Quick Actions -->
       <div class="quick-actions" style="margin-bottom: 1.5rem;">
-        <a
-          class="quick-action"
-          href="/agents/${this.agentId}/terminal"
-          ?disabled=${this.agent.status !== 'running'}
-        >
-          <sl-icon name="terminal"></sl-icon>
-          <span>Open Terminal</span>
-        </a>
+        ${can(this.agent._capabilities, 'attach') ? html`
+          <a
+            class="quick-action"
+            href="/agents/${this.agentId}/terminal"
+            ?disabled=${this.agent.status !== 'running'}
+          >
+            <sl-icon name="terminal"></sl-icon>
+            <span>Open Terminal</span>
+          </a>
+        ` : nothing}
         <div class="quick-action" disabled>
           <sl-icon name="file-text"></sl-icon>
           <span>View Logs</span>

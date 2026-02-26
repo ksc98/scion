@@ -20,10 +20,12 @@
  * Displays all groves (project workspaces) with their status and agent counts
  */
 
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
-import type { PageData, Grove } from '../../shared/types.js';
+import type { PageData, Grove, Capabilities } from '../../shared/types.js';
+import { can } from '../../shared/types.js';
+import { apiFetch } from '../../client/api.js';
 import { stateManager } from '../../client/state.js';
 import '../shared/status-badge.js';
 
@@ -52,6 +54,12 @@ export class ScionPageGroves extends LitElement {
    */
   @state()
   private error: string | null = null;
+
+  /**
+   * Scope-level capabilities from the groves list response
+   */
+  @state()
+  private scopeCapabilities: Capabilities | undefined;
 
   static override styles = css`
     :host {
@@ -271,17 +279,21 @@ export class ScionPageGroves extends LitElement {
     this.error = null;
 
     try {
-      const response = await fetch('/api/v1/groves', {
-        credentials: 'include',
-      });
+      const response = await apiFetch('/api/v1/groves');
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as { message?: string };
         throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = (await response.json()) as { groves?: Grove[] } | Grove[];
-      this.groves = Array.isArray(data) ? data : data.groves || [];
+      const data = (await response.json()) as { groves?: Grove[]; _capabilities?: Capabilities } | Grove[];
+      if (Array.isArray(data)) {
+        this.groves = data;
+        this.scopeCapabilities = undefined;
+      } else {
+        this.groves = data.groves || [];
+        this.scopeCapabilities = data._capabilities;
+      }
     } catch (err) {
       console.error('Failed to load groves:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load groves';
@@ -319,12 +331,14 @@ export class ScionPageGroves extends LitElement {
     return html`
       <div class="header">
         <h1>Groves</h1>
-        <a href="/groves/new" style="text-decoration: none;">
-          <sl-button variant="primary" size="small">
-            <sl-icon slot="prefix" name="plus-lg"></sl-icon>
-            New Grove
-          </sl-button>
-        </a>
+        ${can(this.scopeCapabilities, 'create') ? html`
+          <a href="/groves/new" style="text-decoration: none;">
+            <sl-button variant="primary" size="small">
+              <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+              New Grove
+            </sl-button>
+          </a>
+        ` : nothing}
       </div>
 
       ${this.loading ? this.renderLoading() : this.error ? this.renderError() : this.renderGroves()}
@@ -371,16 +385,17 @@ export class ScionPageGroves extends LitElement {
         <sl-icon name="folder2-open"></sl-icon>
         <h2>No Groves Found</h2>
         <p>
-          Groves are project workspaces that contain your agents. Create your first grove to get
-          started, or run
+          Groves are project workspaces that contain your agents.${can(this.scopeCapabilities, 'create') ? ' Create your first grove to get started, or run' : ' Run'}
           <code>scion init</code> in a project directory.
         </p>
-        <a href="/groves/new" style="text-decoration: none;">
-          <sl-button variant="primary">
-            <sl-icon slot="prefix" name="plus-lg"></sl-icon>
-            Create Grove
-          </sl-button>
-        </a>
+        ${can(this.scopeCapabilities, 'create') ? html`
+          <a href="/groves/new" style="text-decoration: none;">
+            <sl-button variant="primary">
+              <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+              Create Grove
+            </sl-button>
+          </a>
+        ` : nothing}
       </div>
     `;
   }
