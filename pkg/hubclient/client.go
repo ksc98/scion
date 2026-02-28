@@ -64,6 +64,9 @@ type Client interface {
 	// Notifications returns the notification operations interface.
 	Notifications() NotificationService
 
+	// ScheduledEvents returns the scheduled event operations interface scoped to a grove.
+	ScheduledEvents(groveID string) ScheduledEventService
+
 	// Health checks API availability.
 	Health(ctx context.Context) (*HealthResponse, error)
 }
@@ -169,6 +172,11 @@ func (c *client) Auth() AuthService {
 // Notifications returns the notification operations interface.
 func (c *client) Notifications() NotificationService {
 	return c.notifications
+}
+
+// ScheduledEvents returns the scheduled event operations interface scoped to a grove.
+func (c *client) ScheduledEvents(groveID string) ScheduledEventService {
+	return &scheduledEventService{c: c, groveID: groveID}
 }
 
 // Health checks API availability.

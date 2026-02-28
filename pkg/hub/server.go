@@ -874,6 +874,56 @@ func (s *Server) purgeHandler() func(ctx context.Context) {
 	}
 }
 
+// MessageEventPayload is the JSON payload for "message" type scheduled events.
+type MessageEventPayload struct {
+	AgentID   string `json:"agentId,omitempty"`
+	AgentName string `json:"agentName,omitempty"`
+	Message   string `json:"message"`
+	Interrupt bool   `json:"interrupt,omitempty"`
+}
+
+// messageEventHandler returns an EventHandler that dispatches scheduled messages
+// to agents via the AgentDispatcher.
+func (s *Server) messageEventHandler() EventHandler {
+	return func(ctx context.Context, evt store.ScheduledEvent) error {
+		var payload MessageEventPayload
+		if err := json.Unmarshal([]byte(evt.Payload), &payload); err != nil {
+			return fmt.Errorf("invalid message payload: %w", err)
+		}
+
+		if payload.Message == "" {
+			return fmt.Errorf("message payload is empty")
+		}
+
+		// Resolve the agent
+		var agent *store.Agent
+		var err error
+		if payload.AgentID != "" {
+			agent, err = s.store.GetAgent(ctx, payload.AgentID)
+		} else if payload.AgentName != "" && evt.GroveID != "" {
+			agent, err = s.store.GetAgentBySlug(ctx, evt.GroveID, payload.AgentName)
+		} else {
+			return fmt.Errorf("message payload must include agentId or agentName")
+		}
+		if err != nil {
+			return fmt.Errorf("failed to resolve agent: %w", err)
+		}
+
+		dispatcher := s.GetDispatcher()
+		if dispatcher == nil {
+			return fmt.Errorf("no dispatcher available to deliver message")
+		}
+
+		if err := dispatcher.DispatchAgentMessage(ctx, agent, payload.Message, payload.Interrupt); err != nil {
+			return fmt.Errorf("failed to dispatch message to agent %s: %w", agent.Name, err)
+		}
+
+		slog.Info("Scheduler: message delivered to agent",
+			"eventID", evt.ID, "agentID", agent.ID, "agentName", agent.Name)
+		return nil
+	}
+}
+
 func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
 	s.startTime = time.Now()
@@ -894,6 +944,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.config.SoftDeleteRetention > 0 {
 		s.scheduler.RegisterRecurring("soft-delete-purge", 60, s.purgeHandler())
 	}
+	s.scheduler.RegisterEventHandler("message", s.messageEventHandler())
 	s.scheduler.Start(ctx)
 
 	// Start notification dispatcher (uses the current event publisher).

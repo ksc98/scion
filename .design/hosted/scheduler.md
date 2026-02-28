@@ -872,10 +872,10 @@ When the Hub moves to a multi-node deployment, the scheduler will need leader el
 15. ~~Add scheduled event cleanup to the purge recurring handler.~~
 16. ~~Tests for one-shot timer lifecycle, expired timer handling, and cancellation.~~
 
-### Phase 4: API and CLI (Deferred)
-17. Hub API endpoints for creating and cancelling scheduled events.
-18. CLI commands for scheduling messages.
-19. Integration tests.
+### Phase 4: Scheduler API and CLI ✅
+17. ~~Hub API endpoints for creating, listing, getting, and cancelling scheduled events.~~
+18. ~~CLI `--in`/`--at` flags on `scion message` for scheduling future message delivery.~~
+19. ~~Event handler registry, message event handler, Hub client service, and integration tests.~~
 
 ---
 

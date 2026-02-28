@@ -31,6 +31,8 @@ import (
 var msgInterrupt bool
 var msgBroadcast bool
 var msgAll bool
+var msgIn string
+var msgAt string
 
 // messageCmd represents the message command
 var messageCmd = &cobra.Command{
@@ -55,6 +57,14 @@ If --broadcast is used, the agent name can be omitted and the message will be se
 			message = strings.Join(args[1:], " ")
 		}
 
+		// Validate scheduling flags
+		if msgIn != "" && msgAt != "" {
+			return fmt.Errorf("--in and --at are mutually exclusive")
+		}
+		if (msgIn != "" || msgAt != "") && (msgBroadcast || msgAll) {
+			return fmt.Errorf("--in/--at cannot be combined with --broadcast or --all")
+		}
+
 		// Check if Hub should be used
 		var hubCtx *HubContext
 		var err error
@@ -70,6 +80,14 @@ If --broadcast is used, the agent name can be omitted and the message will be se
 		}
 		if err != nil {
 			return err
+		}
+
+		// Handle scheduled messages
+		if msgIn != "" || msgAt != "" {
+			if hubCtx == nil {
+				return fmt.Errorf("scheduled messages require Hub mode (use 'scion hub enable' first)")
+			}
+			return scheduleMessageViaHub(hubCtx, agentName, message, msgInterrupt)
 		}
 
 		if hubCtx != nil {
@@ -248,9 +266,49 @@ func sendMessageViaHub(hubCtx *HubContext, agentName string, message string, int
 	return nil
 }
 
+func scheduleMessageViaHub(hubCtx *HubContext, agentName string, message string, interrupt bool) error {
+	if !isJSONOutput() {
+		PrintUsingHub(hubCtx.Endpoint)
+	}
+
+	groveID, err := GetGroveID(hubCtx)
+	if err != nil {
+		return wrapHubError(err)
+	}
+
+	req := &hubclient.CreateScheduledEventRequest{
+		EventType: "message",
+		AgentName: agentName,
+		Message:   message,
+		Interrupt: interrupt,
+	}
+
+	if msgIn != "" {
+		req.FireIn = msgIn
+	} else {
+		req.FireAt = msgAt
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	evt, err := hubCtx.Client.ScheduledEvents(groveID).Create(ctx, req)
+	if err != nil {
+		return wrapHubError(fmt.Errorf("failed to schedule message: %w", err))
+	}
+
+	if !isJSONOutput() {
+		fmt.Printf("Message to agent '%s' scheduled for %s\n", agentName, evt.FireAt.Format(time.RFC3339))
+	}
+
+	return nil
+}
+
 func init() {
 	messageCmd.Flags().BoolVarP(&msgInterrupt, "interrupt", "i", false, "Interrupt the harness before sending the message")
 	messageCmd.Flags().BoolVarP(&msgBroadcast, "broadcast", "b", false, "Send the message to all running agents in the current grove")
 	messageCmd.Flags().BoolVarP(&msgAll, "all", "a", false, "Send the message to all running agents across all groves")
+	messageCmd.Flags().StringVar(&msgIn, "in", "", "Schedule message delivery after a duration (e.g. 30m, 1h)")
+	messageCmd.Flags().StringVar(&msgAt, "at", "", "Schedule message delivery at an absolute time (ISO 8601, e.g. 2026-02-28T14:00:00Z)")
 	rootCmd.AddCommand(messageCmd)
 }

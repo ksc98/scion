@@ -24,6 +24,9 @@ import (
 	"github.com/ptone/scion-agent/pkg/store"
 )
 
+// EventHandler processes a one-shot scheduled event of a specific type.
+type EventHandler func(ctx context.Context, evt store.ScheduledEvent) error
+
 // Scheduler manages recurring and one-shot timers within the Hub server.
 // A single root ticker fires every 1 minute and drives all registered
 // recurring handlers based on their configured interval.
@@ -43,6 +46,9 @@ type Scheduler struct {
 
 	// Recurring handlers
 	recurring []RecurringHandler
+
+	// Event type handlers for one-shot events
+	eventHandlers map[string]EventHandler
 
 	// Tick counter (monotonically increasing)
 	tickCount uint64
@@ -74,11 +80,18 @@ type scheduledTimer struct {
 // NewScheduler creates a new Scheduler with a 1-minute root ticker interval.
 func NewScheduler(st store.Store) *Scheduler {
 	return &Scheduler{
-		store:        st,
-		tickInterval: 1 * time.Minute,
-		timers:       make(map[string]*scheduledTimer),
-		stopCh:       make(chan struct{}),
+		store:         st,
+		tickInterval:  1 * time.Minute,
+		timers:        make(map[string]*scheduledTimer),
+		eventHandlers: make(map[string]EventHandler),
+		stopCh:        make(chan struct{}),
 	}
+}
+
+// RegisterEventHandler registers a handler for a specific event type.
+// Must be called before Start(). Not safe for concurrent use.
+func (s *Scheduler) RegisterEventHandler(eventType string, handler EventHandler) {
+	s.eventHandlers[eventType] = handler
 }
 
 // RegisterRecurring registers a recurring handler that runs every intervalMinutes
@@ -289,18 +302,11 @@ func (s *Scheduler) fireEvent(ctx context.Context, evt store.ScheduledEvent, was
 // executeEvent dispatches the event to the appropriate handler based on its
 // EventType. Unknown event types return an error.
 func (s *Scheduler) executeEvent(ctx context.Context, evt store.ScheduledEvent) error {
-	switch evt.EventType {
-	case "message":
-		// Stub: message event handling will be implemented in Phase 4
-		slog.Info("Scheduler: message event received (stub)", "eventID", evt.ID, "groveID", evt.GroveID)
-		return nil
-	case "status_update":
-		// Stub: status_update event handling will be implemented in Phase 4
-		slog.Info("Scheduler: status_update event received (stub)", "eventID", evt.ID, "groveID", evt.GroveID)
-		return nil
-	default:
+	handler, ok := s.eventHandlers[evt.EventType]
+	if !ok {
 		return fmt.Errorf("unknown event type: %s", evt.EventType)
 	}
+	return handler(ctx, evt)
 }
 
 // ScheduleEvent creates a new one-shot scheduled event. The event is persisted

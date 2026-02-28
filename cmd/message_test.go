@@ -287,6 +287,65 @@ func TestSendMessageViaHub_SingleAgentError(t *testing.T) {
 	require.Error(t, err, "single-agent message failure should return an error")
 }
 
+func TestScheduleMessageFlagValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		at      string
+		broadcast bool
+		all     bool
+		wantErr string
+	}{
+		{
+			name:    "in and at are mutually exclusive",
+			in:      "30m",
+			at:      "2030-01-01T00:00:00Z",
+			wantErr: "--in and --at are mutually exclusive",
+		},
+		{
+			name:      "in with broadcast not allowed",
+			in:        "30m",
+			broadcast: true,
+			wantErr:   "--in/--at cannot be combined with --broadcast or --all",
+		},
+		{
+			name:    "at with all not allowed",
+			at:      "2030-01-01T00:00:00Z",
+			all:     true,
+			wantErr: "--in/--at cannot be combined with --broadcast or --all",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Save and restore global state
+			origIn, origAt := msgIn, msgAt
+			origBroadcast, origAll := msgBroadcast, msgAll
+			defer func() {
+				msgIn, msgAt = origIn, origAt
+				msgBroadcast, msgAll = origBroadcast, origAll
+			}()
+
+			msgIn = tc.in
+			msgAt = tc.at
+			msgBroadcast = tc.broadcast
+			msgAll = tc.all
+
+			// Build args appropriate for the flag combination
+			var args []string
+			if tc.broadcast || tc.all {
+				args = []string{"hello"}
+			} else {
+				args = []string{"agent1", "hello"}
+			}
+
+			err := messageCmd.RunE(messageCmd, args)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func TestSendMessageViaHub_BroadcastPartialFailure(t *testing.T) {
 	orig := saveMessageTestState()
 	defer orig.restore()

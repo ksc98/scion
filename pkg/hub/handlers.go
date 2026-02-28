@@ -2322,6 +2322,14 @@ func (s *Server) handleGroveRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for nested /scheduled-events path
+	if strings.HasPrefix(subPath, "scheduled-events") {
+		eventPath := strings.TrimPrefix(subPath, "scheduled-events")
+		eventPath = strings.TrimPrefix(eventPath, "/")
+		s.handleScheduledEvents(w, r, groveID, eventPath)
+		return
+	}
+
 	// Check for nested /workspace/archive path (download workspace as zip)
 	if subPath == "workspace/archive" {
 		s.handleGroveWorkspaceArchive(w, r, groveID)

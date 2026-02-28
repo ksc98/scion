@@ -16,6 +16,7 @@ package hub
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -400,6 +401,9 @@ func (m *mockScheduledEventStore) getEvent(id string) *store.ScheduledEvent {
 func TestOneShotTimerFiresAtCorrectTime(t *testing.T) {
 	ms := newMockStore()
 	s := newTestSchedulerWithStore(1*time.Second, ms)
+	s.RegisterEventHandler("message", func(_ context.Context, _ store.ScheduledEvent) error {
+		return nil
+	})
 
 	var fired atomic.Int32
 
@@ -470,6 +474,9 @@ func TestOneShotExpiredTimerFiresImmediately(t *testing.T) {
 	ms.CreateScheduledEvent(ctx, &evt)
 
 	s := newTestSchedulerWithStore(1*time.Second, ms)
+	s.RegisterEventHandler("message", func(_ context.Context, _ store.ScheduledEvent) error {
+		return nil
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -634,24 +641,17 @@ func TestStopCancelsAllOneShotTimers(t *testing.T) {
 func TestOneShotHandlerPanicRecovery(t *testing.T) {
 	ms := newMockStore()
 	s := newTestSchedulerWithStore(1*time.Second, ms)
+	s.RegisterEventHandler("message", func(_ context.Context, _ store.ScheduledEvent) error {
+		return nil
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Create an event that will trigger the "message" handler — the stub
-	// won't panic, so we test panic recovery with an event that has a very
-	// short fire time to trigger fireEvent directly.
-	// We'll test panic via a direct fireEvent call with a custom executeEvent
-	// that is difficult to override. Instead, test that fireEvent catches panics
-	// by verifying the error message is recorded in the store.
-
-	// We simulate a panic by using an unknown event type... but that returns
-	// an error, not a panic. Let's test panic recovery by calling fireEvent
-	// directly.
 	evt := store.ScheduledEvent{
 		ID:        "panic-1",
 		GroveID:   "grove-1",
-		EventType: "message", // valid type, won't panic
+		EventType: "message",
 		FireAt:    time.Now(),
 		Payload:   "{}",
 		Status:    store.ScheduledEventPending,
@@ -724,5 +724,169 @@ func TestOneShotNilStoreSafety(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error when scheduling with nil store")
+	}
+}
+
+// ============================================================================
+// Event Handler Registry Tests
+// ============================================================================
+
+func TestRegisterEventHandlerAndDispatch(t *testing.T) {
+	ms := newMockStore()
+	s := newTestSchedulerWithStore(1*time.Second, ms)
+
+	var handlerCalled atomic.Int32
+	var receivedPayload string
+	var mu sync.Mutex
+
+	s.RegisterEventHandler("message", func(_ context.Context, evt store.ScheduledEvent) error {
+		handlerCalled.Add(1)
+		mu.Lock()
+		receivedPayload = evt.Payload
+		mu.Unlock()
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	evt := store.ScheduledEvent{
+		ID:        "handler-test-1",
+		GroveID:   "grove-1",
+		EventType: "message",
+		FireAt:    time.Now(),
+		Payload:   `{"msg":"hello"}`,
+		Status:    store.ScheduledEventPending,
+	}
+	ms.CreateScheduledEvent(ctx, &evt)
+
+	s.fireEvent(ctx, evt, false)
+
+	if got := handlerCalled.Load(); got != 1 {
+		t.Errorf("expected handler to be called once, got %d", got)
+	}
+	mu.Lock()
+	if receivedPayload != `{"msg":"hello"}` {
+		t.Errorf("expected payload %q, got %q", `{"msg":"hello"}`, receivedPayload)
+	}
+	mu.Unlock()
+
+	e := ms.getEvent("handler-test-1")
+	if e.Status != store.ScheduledEventFired {
+		t.Errorf("expected status %q, got %q", store.ScheduledEventFired, e.Status)
+	}
+	if e.Error != "" {
+		t.Errorf("expected no error, got %q", e.Error)
+	}
+}
+
+func TestEventHandlerErrorIsCaptured(t *testing.T) {
+	ms := newMockStore()
+	s := newTestSchedulerWithStore(1*time.Second, ms)
+
+	s.RegisterEventHandler("message", func(_ context.Context, _ store.ScheduledEvent) error {
+		return fmt.Errorf("handler failed: something went wrong")
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	evt := store.ScheduledEvent{
+		ID:        "handler-err-1",
+		GroveID:   "grove-1",
+		EventType: "message",
+		FireAt:    time.Now(),
+		Payload:   "{}",
+		Status:    store.ScheduledEventPending,
+	}
+	ms.CreateScheduledEvent(ctx, &evt)
+
+	s.fireEvent(ctx, evt, false)
+
+	e := ms.getEvent("handler-err-1")
+	if e.Status != store.ScheduledEventFired {
+		t.Errorf("expected status %q, got %q", store.ScheduledEventFired, e.Status)
+	}
+	if e.Error != "handler failed: something went wrong" {
+		t.Errorf("expected error message %q, got %q", "handler failed: something went wrong", e.Error)
+	}
+}
+
+func TestUnregisteredEventTypeReturnsError(t *testing.T) {
+	ms := newMockStore()
+	s := newTestSchedulerWithStore(1*time.Second, ms)
+	// Deliberately do not register any handler
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	evt := store.ScheduledEvent{
+		ID:        "no-handler-1",
+		GroveID:   "grove-1",
+		EventType: "some_unregistered_type",
+		FireAt:    time.Now(),
+		Payload:   "{}",
+		Status:    store.ScheduledEventPending,
+	}
+	ms.CreateScheduledEvent(ctx, &evt)
+
+	s.fireEvent(ctx, evt, false)
+
+	e := ms.getEvent("no-handler-1")
+	if e.Status != store.ScheduledEventFired {
+		t.Errorf("expected status %q, got %q", store.ScheduledEventFired, e.Status)
+	}
+	if e.Error != "unknown event type: some_unregistered_type" {
+		t.Errorf("expected error about unknown event type, got %q", e.Error)
+	}
+}
+
+func TestMultipleEventHandlers(t *testing.T) {
+	ms := newMockStore()
+	s := newTestSchedulerWithStore(1*time.Second, ms)
+
+	var messageCalled, statusCalled atomic.Int32
+
+	s.RegisterEventHandler("message", func(_ context.Context, _ store.ScheduledEvent) error {
+		messageCalled.Add(1)
+		return nil
+	})
+	s.RegisterEventHandler("status_update", func(_ context.Context, _ store.ScheduledEvent) error {
+		statusCalled.Add(1)
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Fire a message event
+	msgEvt := store.ScheduledEvent{
+		ID:        "multi-msg-1",
+		GroveID:   "grove-1",
+		EventType: "message",
+		FireAt:    time.Now(),
+		Payload:   "{}",
+		Status:    store.ScheduledEventPending,
+	}
+	ms.CreateScheduledEvent(ctx, &msgEvt)
+	s.fireEvent(ctx, msgEvt, false)
+
+	// Fire a status_update event
+	statusEvt := store.ScheduledEvent{
+		ID:        "multi-status-1",
+		GroveID:   "grove-1",
+		EventType: "status_update",
+		FireAt:    time.Now(),
+		Payload:   "{}",
+		Status:    store.ScheduledEventPending,
+	}
+	ms.CreateScheduledEvent(ctx, &statusEvt)
+	s.fireEvent(ctx, statusEvt, false)
+
+	if got := messageCalled.Load(); got != 1 {
+		t.Errorf("expected message handler called once, got %d", got)
+	}
+	if got := statusCalled.Load(); got != 1 {
+		t.Errorf("expected status handler called once, got %d", got)
 	}
 }
