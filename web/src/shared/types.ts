@@ -330,6 +330,27 @@ export interface RuntimeBroker {
 }
 
 // ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+/**
+ * Notification from the Hub API (GET /api/v1/notifications)
+ */
+export interface Notification {
+  id: string;
+  subscriptionId: string;
+  agentId: string;
+  groveId: string;
+  subscriberType: string;
+  subscriberId: string;
+  status: string;
+  message: string;
+  dispatched: boolean;
+  acknowledged: boolean;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // Access control capabilities
 // ---------------------------------------------------------------------------
 
