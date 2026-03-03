@@ -420,6 +420,18 @@ func writeFileSecrets(homeDir string, containerHome string, secrets []api.Resolv
 		// Expand ~/ to the container user's home directory
 		containerTarget := expandTildeTarget(s.Target, containerHome)
 
+		// Pre-create the parent directory of the mount target inside the
+		// agent home so that Docker/Podman does not create it as root
+		// (which would make the agent directory undeletable by a non-root
+		// broker process).
+		if homeDir != "" && strings.HasPrefix(containerTarget, containerHome+"/") {
+			rel := strings.TrimPrefix(containerTarget, containerHome+"/")
+			parentDir := filepath.Dir(rel)
+			if parentDir != "." {
+				_ = os.MkdirAll(filepath.Join(homeDir, parentDir), 0755)
+			}
+		}
+
 		// Bind-mount from host staging path to container target path (read-only)
 		mountSpecs = append(mountSpecs, fmt.Sprintf("%s:%s:ro", hostPath, containerTarget))
 	}

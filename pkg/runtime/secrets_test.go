@@ -150,6 +150,68 @@ func TestWriteFileSecrets_TildeExpansion(t *testing.T) {
 	}
 }
 
+func TestWriteFileSecrets_PreCreatesParentDirs(t *testing.T) {
+	// writeFileSecrets should pre-create the parent directory of file secret
+	// mount targets inside the agent home so Docker does not create them as
+	// root (which makes the agent dir undeletable by non-root users).
+	homeDir := t.TempDir()
+
+	secrets := []api.ResolvedSecret{
+		{
+			Name:   "telemetry-creds",
+			Type:   "file",
+			Target: "~/.scion/telemetry-gcp-credentials.json",
+			Value:  base64.StdEncoding.EncodeToString([]byte("cred-data")),
+			Source: "grove",
+		},
+		{
+			Name:   "nested-secret",
+			Type:   "file",
+			Target: "~/.config/deep/nested/secret.json",
+			Value:  base64.StdEncoding.EncodeToString([]byte("nested-data")),
+			Source: "user",
+		},
+		{
+			Name:   "abs-secret",
+			Type:   "file",
+			Target: "/etc/ssl/cert.pem",
+			Value:  base64.StdEncoding.EncodeToString([]byte("cert")),
+			Source: "user",
+		},
+	}
+
+	_, err := writeFileSecrets(homeDir, "/home/scion", secrets)
+	if err != nil {
+		t.Fatalf("writeFileSecrets failed: %v", err)
+	}
+
+	// .scion dir should be pre-created inside the agent home
+	scionDir := filepath.Join(homeDir, ".scion")
+	info, err := os.Stat(scionDir)
+	if err != nil {
+		t.Fatalf("expected %s to exist, got: %v", scionDir, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %s to be a directory", scionDir)
+	}
+
+	// Nested parent dirs should also be pre-created
+	nestedDir := filepath.Join(homeDir, ".config", "deep", "nested")
+	info, err = os.Stat(nestedDir)
+	if err != nil {
+		t.Fatalf("expected %s to exist, got: %v", nestedDir, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %s to be a directory", nestedDir)
+	}
+
+	// Absolute path outside container home should NOT create dirs inside agent home
+	etcDir := filepath.Join(homeDir, "etc", "ssl")
+	if _, err := os.Stat(etcDir); !os.IsNotExist(err) {
+		t.Errorf("expected %s to NOT exist for absolute target outside container home", etcDir)
+	}
+}
+
 func TestExpandTildeTarget(t *testing.T) {
 	tests := []struct {
 		target        string
