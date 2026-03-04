@@ -638,6 +638,26 @@ func gitCloneWorkspace(uid, gid int) error {
 		return nil
 	}
 
+	// When uid is 0 (broker running as root or no host UID configured), fall
+	// back to the scion user so that cloned files are owned by the container
+	// user rather than root.
+	if uid == 0 {
+		if scionUser, err := user.Lookup("scion"); err == nil {
+			uid, _ = strconv.Atoi(scionUser.Uid)
+			gid, _ = strconv.Atoi(scionUser.Gid)
+			log.Info("Falling back to scion user UID=%d GID=%d for git clone", uid, gid)
+		}
+	}
+
+	// Ensure the workspace directory is owned by the target user. The
+	// directory may have been created on the host by a root broker process
+	// and bind-mounted into the container as root-owned.
+	if uid > 0 {
+		if err := os.Chown(workspacePath, uid, gid); err != nil {
+			log.Error("Failed to chown workspace to UID=%d GID=%d: %v", uid, gid, err)
+		}
+	}
+
 	token := os.Getenv("GITHUB_TOKEN")
 	branch := os.Getenv("SCION_GIT_BRANCH")
 	if branch == "" {
