@@ -288,6 +288,13 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 			util.Debugf("auth: applied harness-specific settings for %q", harnessName)
 		}
 		resolvedAuth = resolved
+
+		// Surface resolved auth method so CLI can display it
+		authDetail := resolved.Method
+		if nativeType, ok := resolved.EnvVars["GEMINI_DEFAULT_AUTH_TYPE"]; ok {
+			authDetail = fmt.Sprintf("%s (%s)", resolved.Method, nativeType)
+		}
+		warnings = append(warnings, fmt.Sprintf("Auth: resolved as %s", authDetail))
 	}
 
 	// 4. Launch container

@@ -30,6 +30,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/apiclient"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/credentials"
+	"github.com/ptone/scion-agent/pkg/harness"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/hubsync"
 	"github.com/ptone/scion-agent/pkg/runtime"
@@ -358,6 +359,17 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		}
 	}
 
+	// Preview auth credentials in debug mode
+	if debugMode && !noAuth {
+		localAuth := harness.GatherAuth()
+		util.Debugf("[auth] local credential preview:")
+		util.Debugf("[auth]   hasGeminiAPIKey=%t, hasGoogleAPIKey=%t", localAuth.GeminiAPIKey != "", localAuth.GoogleAPIKey != "")
+		util.Debugf("[auth]   hasAnthropicAPIKey=%t", localAuth.AnthropicAPIKey != "")
+		util.Debugf("[auth]   hasOAuthCreds=%t (%s)", localAuth.OAuthCreds != "", localAuth.OAuthCreds)
+		util.Debugf("[auth]   hasGoogleAppCredentials=%t (explicit=%t)", localAuth.GoogleAppCredentials != "", localAuth.GoogleAppCredentialsExplicit)
+		util.Debugf("[auth]   cloudProject=%q, cloudRegion=%q", localAuth.GoogleCloudProject, localAuth.GoogleCloudRegion)
+	}
+
 	// We still might want to show some progress in the CLI
 	if resume {
 		statusf("Resuming agent '%s'...\n", agentName)
@@ -508,6 +520,15 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 			util.Debugf("[env-gather] startAgentViaHub: no env vars in request config (Hub/Broker must supply all)")
 		}
 		util.Debugf("[env-gather] startAgentViaHub: GatherEnv=true — broker will evaluate env completeness; CLI may be asked to supply missing keys")
+
+		// Preview auth credentials visible from the CLI host
+		localAuth := harness.GatherAuth()
+		util.Debugf("[auth] CLI-side credential preview (what the broker will see via env/secrets):")
+		util.Debugf("[auth]   hasGeminiAPIKey=%t, hasGoogleAPIKey=%t", localAuth.GeminiAPIKey != "", localAuth.GoogleAPIKey != "")
+		util.Debugf("[auth]   hasAnthropicAPIKey=%t", localAuth.AnthropicAPIKey != "")
+		util.Debugf("[auth]   hasOAuthCreds=%t (%s)", localAuth.OAuthCreds != "", localAuth.OAuthCreds)
+		util.Debugf("[auth]   hasGoogleAppCredentials=%t (explicit=%t)", localAuth.GoogleAppCredentials != "", localAuth.GoogleAppCredentialsExplicit)
+		util.Debugf("[auth]   cloudProject=%q, cloudRegion=%q", localAuth.GoogleCloudProject, localAuth.GoogleCloudRegion)
 	}
 
 	// Detect non-git grove for workspace bootstrap

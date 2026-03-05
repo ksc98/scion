@@ -700,6 +700,13 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log auth resolution info visible in broker logs
+	for _, w := range agentInfo.Warnings {
+		if strings.HasPrefix(w, "Auth:") {
+			s.agentLifecycleLog.Info("Agent auth resolution", "agent", req.Name, "result", w)
+		}
+	}
+
 	resp := CreateAgentResponse{
 		Agent:   agentInfoPtr(AgentInfoToResponse(*agentInfo)),
 		Created: true,
