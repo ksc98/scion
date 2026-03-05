@@ -290,6 +290,7 @@ type RemoteAgentConfig struct {
 	Task        string   `json:"task,omitempty"`
 	CommandArgs []string `json:"commandArgs,omitempty"`
 	HarnessConfig     string   `json:"harnessConfig,omitempty"`  // Resolved harness config name for env-gather
+	HarnessAuth       string   `json:"harnessAuth,omitempty"`   // Late-binding override for auth_selected_type
 	Profile     string   `json:"profile,omitempty"`   // Settings profile for the runtime broker
 
 	// TemplateID is the Hub template ID for cache lookup on the Runtime Broker.

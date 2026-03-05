@@ -528,6 +528,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		opts.Template = req.Config.Template
 		opts.Image = req.Config.Image
 		opts.HarnessConfig = req.Config.HarnessConfig
+		opts.HarnessAuth = req.Config.HarnessAuth
 		opts.Task = req.Config.Task
 		opts.Workspace = req.Config.Workspace
 		opts.Profile = req.Config.Profile

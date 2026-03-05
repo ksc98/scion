@@ -47,6 +47,16 @@ arguments are provided, an empty prompt.md is created for later editing.`,
 		agentName := args[0]
 		task := strings.TrimSpace(strings.Join(args[1:], " "))
 
+		// Validate --harness-auth value
+		if harnessAuthFlag != "" {
+			switch harnessAuthFlag {
+			case "api-key", "vertex-ai", "auth-file":
+				// valid
+			default:
+				return fmt.Errorf("invalid --harness-auth value %q: must be one of api-key, vertex-ai, auth-file", harnessAuthFlag)
+			}
+		}
+
 		// Check if Hub should be used, excluding the target agent from sync requirements.
 		// This allows creating an agent even if it already exists on Hub (recreate scenario)
 		// or if other agents are out of sync.
@@ -142,6 +152,7 @@ func createAgentViaHub(hubCtx *HubContext, agentName string, task string) error 
 		GroveID:         groveID,
 		Template:        resolvedTemplate,
 		HarnessConfig:   harnessConfigFlag,
+		HarnessAuth:     harnessAuthFlag,
 		RuntimeBrokerID: runtimeBrokerID,
 		Task:            task,
 		Branch:          branch,
@@ -238,6 +249,8 @@ func init() {
 	createCmd.Flags().StringVar(&runtimeBrokerID, "broker", "", "Preferred runtime broker ID or name")
 	createCmd.Flags().StringVar(&harnessConfigFlag, "harness-config", "", "Named harness configuration to use")
 	createCmd.Flags().StringVar(&harnessConfigFlag, "harness", "h", "Named harness configuration to use (alias for --harness-config)")
+
+	createCmd.Flags().StringVar(&harnessAuthFlag, "harness-auth", "", "Override auth method for the harness (api-key, vertex-ai, auth-file)")
 
 	// Template resolution flags for Hub mode (Section 9.4)
 	createCmd.Flags().BoolVar(&uploadTemplate, "upload-template", false, "Automatically upload local template to Hub if not found")

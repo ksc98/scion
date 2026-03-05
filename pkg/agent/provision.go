@@ -126,6 +126,15 @@ func (m *AgentManager) Provision(ctx context.Context, opts api.StartOptions) (*a
 		return cfg, err
 	}
 
+	// Apply late-binding harness auth override
+	if opts.HarnessAuth != "" && cfg != nil {
+		cfg.AuthSelectedType = opts.HarnessAuth
+		cfgData, marshalErr := json.MarshalIndent(cfg, "", "  ")
+		if marshalErr == nil {
+			_ = os.WriteFile(filepath.Join(agentDir, "scion-agent.json"), cfgData, 0644)
+		}
+	}
+
 	// If a task was provided, write it to prompt.md for later execution
 	if opts.Task != "" {
 		promptFile := filepath.Join(agentDir, "prompt.md")

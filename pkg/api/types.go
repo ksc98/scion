@@ -453,6 +453,7 @@ type StartOptions struct {
 	TemplateName    string // Human-friendly template slug (overrides Template for labels when hydration replaces Template with a cache path)
 	Profile         string
 	HarnessConfig   string
+	HarnessAuth     string // Late-binding override for auth_selected_type (api-key, vertex-ai, auth-file)
 	Image           string
 	GrovePath       string
 	Env             map[string]string

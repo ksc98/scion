@@ -109,6 +109,7 @@ type CreateAgentRequest struct {
 	GroveID       string            `json:"groveId"`
 	Template      string            `json:"template,omitempty"`
 	HarnessConfig       string            `json:"harnessConfig,omitempty"` // Explicit harness config name (used during sync when template may not be on Hub)
+	HarnessAuth         string            `json:"harnessAuth,omitempty"`   // Late-binding override for auth_selected_type
 	RuntimeBrokerID string            `json:"runtimeBrokerId,omitempty"`
 	Profile       string            `json:"profile,omitempty"`
 	Task          string            `json:"task,omitempty"`

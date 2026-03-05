@@ -16,6 +16,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
@@ -453,6 +454,20 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		if finalScionCfg != nil && finalScionCfg.Env != nil {
 			delete(finalScionCfg.Env, "SCION_HUB_ENDPOINT")
 			delete(finalScionCfg.Env, "SCION_HUB_URL")
+		}
+	}
+
+	// Apply CLI harness auth override (--harness-auth).
+	// This has highest priority, overriding settings, templates, and harness configs.
+	if opts.HarnessAuth != "" {
+		if finalScionCfg == nil {
+			finalScionCfg = &api.ScionConfig{}
+		}
+		finalScionCfg.AuthSelectedType = opts.HarnessAuth
+		// Persist to scion-agent.json so sciontool inside the container sees the override.
+		cfgData, marshalErr := json.MarshalIndent(finalScionCfg, "", "  ")
+		if marshalErr == nil {
+			_ = os.WriteFile(filepath.Join(agentDir, "scion-agent.json"), cfgData, 0644)
 		}
 	}
 

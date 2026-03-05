@@ -62,6 +62,7 @@ var (
 	workspace         string
 	runtimeBrokerID   string
 	harnessConfigFlag string
+	harnessAuthFlag   string
 	notify            bool
 	enableTelemetry   bool
 	disableTelemetry  bool
@@ -273,6 +274,16 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		return fmt.Errorf("--enable-telemetry and --disable-telemetry are mutually exclusive")
 	}
 
+	// Validate --harness-auth value
+	if harnessAuthFlag != "" {
+		switch harnessAuthFlag {
+		case "api-key", "vertex-ai", "auth-file":
+			// valid
+		default:
+			return fmt.Errorf("invalid --harness-auth value %q: must be one of api-key, vertex-ai, auth-file", harnessAuthFlag)
+		}
+	}
+
 	// Check if Hub should be used, excluding the target agent from sync requirements.
 	// This allows starting/resuming an agent even if it exists on Hub but not locally
 	// (will be created via Hub) or if other agents are out of sync.
@@ -332,6 +343,7 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		Template:      templateName,
 		Profile:       effectiveProfile,
 		HarnessConfig: harnessConfigFlag,
+		HarnessAuth:   harnessAuthFlag,
 		Image:         resolvedImage,
 		GrovePath:     grovePath,
 		Resume:        resume,
@@ -499,6 +511,7 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 		GroveID:       groveID,
 		Template:      resolvedTemplate,
 		HarnessConfig:       harnessConfigFlag,
+		HarnessAuth:         harnessAuthFlag,
 		RuntimeBrokerID: runtimeBrokerID,
 		Profile:       profile,
 		Task:          task,

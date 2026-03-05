@@ -638,6 +638,7 @@ func (d *HTTPAgentDispatcher) buildCreateRequest(ctx context.Context, agent *sto
 			Template:     agent.Template,
 			Image:        agent.AppliedConfig.Image,
 			HarnessConfig:      agent.AppliedConfig.HarnessConfig,
+			HarnessAuth:        agent.AppliedConfig.HarnessAuth,
 			Task:         agent.AppliedConfig.Task,
 			Workspace:    workspace,
 			Profile:      agent.AppliedConfig.Profile,

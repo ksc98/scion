@@ -86,6 +86,7 @@ type Agent struct {
 type AgentAppliedConfig struct {
 	Image   string            `json:"image,omitempty"`
 	HarnessConfig string            `json:"harnessConfig,omitempty"`
+	HarnessAuth   string            `json:"harnessAuth,omitempty"` // Late-binding override for auth_selected_type
 	Env     map[string]string `json:"env,omitempty"`
 	Model   string            `json:"model,omitempty"`
 	Profile string            `json:"profile,omitempty"`   // Settings profile for the runtime broker

@@ -1112,6 +1112,80 @@ profiles:
 	})
 }
 
+func TestHarnessAuthOverrideFlag(t *testing.T) {
+	// Verify that HarnessAuth in StartOptions takes highest priority,
+	// overriding the auth_selected_type from scion-agent.json.
+	tmpDir := t.TempDir()
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	globalScionDir := filepath.Join(tmpDir, ".scion")
+
+	hcDir := filepath.Join(globalScionDir, "harness-configs", "test-harness")
+	os.MkdirAll(hcDir, 0755)
+	os.WriteFile(filepath.Join(hcDir, "config.yaml"), []byte("harness: gemini\nuser: scion\nimage: test-image:latest\n"), 0644)
+
+	tplDir := filepath.Join(globalScionDir, "templates", "default")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(`{"default_harness_config": "test-harness"}`), 0644)
+
+	os.WriteFile(filepath.Join(globalScionDir, "settings.yaml"), []byte(`schema_version: "1"
+active_profile: local
+profiles:
+  local:
+    runtime: docker
+`), 0644)
+
+	projectDir := filepath.Join(tmpDir, "project")
+	projectScionDir := filepath.Join(projectDir, ".scion")
+	os.MkdirAll(projectScionDir, 0755)
+
+	t.Run("override changes auth_selected_type from api-key to vertex-ai", func(t *testing.T) {
+		mockRT := &runtime.MockRuntime{
+			ListFunc: func(ctx context.Context, labelFilter map[string]string) ([]api.AgentInfo, error) {
+				return []api.AgentInfo{}, nil
+			},
+			RunFunc: func(ctx context.Context, config runtime.RunConfig) (string, error) {
+				return "mock-id", nil
+			},
+		}
+
+		agentDir := filepath.Join(projectScionDir, "agents", "auth-override")
+		os.MkdirAll(filepath.Join(agentDir, "home"), 0755)
+		os.WriteFile(filepath.Join(agentDir, "scion-agent.json"), []byte(`{
+			"harness": "gemini",
+			"auth_selectedType": "api-key"
+		}`), 0644)
+
+		mgr := NewManager(mockRT)
+		_, err := mgr.Start(context.Background(), api.StartOptions{
+			Name:        "auth-override",
+			GrovePath:   projectScionDir,
+			NoAuth:      true,
+			HarnessAuth: "vertex-ai",
+		})
+		if err != nil {
+			t.Fatalf("Start failed: %v", err)
+		}
+
+		// The override is applied in-memory to finalScionCfg.AuthSelectedType
+		// before container launch. Verify the scion-agent.json was updated.
+		data, err := os.ReadFile(filepath.Join(agentDir, "scion-agent.json"))
+		if err != nil {
+			t.Fatalf("failed to read scion-agent.json: %v", err)
+		}
+		if !strings.Contains(string(data), `"vertex-ai"`) {
+			t.Errorf("expected scion-agent.json to contain vertex-ai, got: %s", string(data))
+		}
+	})
+}
+
 func TestBuildAgentEnv_TelemetryNoOverrideExplicit(t *testing.T) {
 	// Explicit opts.Env values must not be overwritten by telemetry config.
 	enabled := true

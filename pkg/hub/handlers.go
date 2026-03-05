@@ -174,6 +174,7 @@ type CreateAgentRequest struct {
 	RuntimeBrokerID string            `json:"runtimeBrokerId,omitempty"` // Optional: uses grove's default if not specified
 	Template      string            `json:"template"`
 	HarnessConfig       string            `json:"harnessConfig,omitempty"` // Explicit harness config name (used during sync when template may not be on Hub)
+	HarnessAuth         string            `json:"harnessAuth,omitempty"`   // Late-binding override for auth_selected_type
 	Profile       string            `json:"profile,omitempty"` // Settings profile for the runtime broker to use
 	Task          string            `json:"task,omitempty"`
 	Branch        string            `json:"branch,omitempty"`
@@ -477,6 +478,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 			Model:       req.Config.Model,
 			Profile:     req.Profile,
 			HarnessConfig:     harnessConfig,
+			HarnessAuth:       req.HarnessAuth,
 			Task:        req.Task,
 			Attach:      req.Attach,
 			Workspace:   req.Workspace,
@@ -488,6 +490,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		agent.AppliedConfig = &store.AgentAppliedConfig{
 			Profile:     req.Profile,
 			HarnessConfig:     harnessConfig,
+			HarnessAuth:       req.HarnessAuth,
 			Task:        req.Task,
 			Attach:      req.Attach,
 			Workspace:   req.Workspace,
@@ -2666,6 +2669,7 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 			Model:       req.Config.Model,
 			Profile:     req.Profile,
 			HarnessConfig:     harnessConfig,
+			HarnessAuth:       req.HarnessAuth,
 			Task:        req.Task,
 			Attach:      req.Attach,
 			Workspace:   req.Workspace,
@@ -2677,6 +2681,7 @@ func (s *Server) createGroveAgent(w http.ResponseWriter, r *http.Request, groveI
 		agent.AppliedConfig = &store.AgentAppliedConfig{
 			Profile:     req.Profile,
 			HarnessConfig:     harnessConfig,
+			HarnessAuth:       req.HarnessAuth,
 			Task:        req.Task,
 			Attach:      req.Attach,
 			Workspace:   req.Workspace,

@@ -220,6 +220,7 @@ type CreateAgentConfig struct {
 	Labels      map[string]string     `json:"labels,omitempty"`
 	Annotations map[string]string     `json:"annotations,omitempty"`
 	HarnessConfig     string                `json:"harnessConfig,omitempty"`
+	HarnessAuth       string                `json:"harnessAuth,omitempty"` // Late-binding override for auth_selected_type
 	Task        string                `json:"task,omitempty"`
 	CommandArgs []string              `json:"commandArgs,omitempty"`
 	Profile     string                `json:"profile,omitempty"` // Settings profile for the runtime broker
