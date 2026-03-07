@@ -1,7 +1,7 @@
 # Agent Log Viewer
 
 ## Status
-**In Progress** — Phase 2 complete (2026-03-07)
+**Complete** — Phase 3 complete (2026-03-07)
 
 ## Overview
 
@@ -502,10 +502,27 @@ known scion fields like `agent_id`, `grove_id`).
   using the browser's native `EventSource`. The stream toggle disables the
   refresh button to prevent conflicting fetches.
 
-#### Phase 3 — Optimizations
-1. Upgrade streaming backend to Cloud Logging Tail API
-2. Add `broker_id` as a primary Cloud Logging label for provenance
-3. Add broker-based filtering to the UI and API
+#### Phase 3 — Optimizations ✅ Complete
+1. ✅ Upgrade streaming backend to Cloud Logging Tail API
+2. ✅ Add `broker_id` as a primary Cloud Logging label for provenance
+3. ✅ Add broker-based filtering to the UI and API
+
+**Implementation notes:**
+- Streaming backend now uses the `apiv2.Client.TailLogEntries()` gRPC streaming
+  API instead of a 3-second polling loop. This provides true real-time streaming
+  with a 2-second buffer window, reducing latency and API call volume.
+- `broker_id` is promoted to a Cloud Logging label via `promoteAttrToLabels()`
+  in `CloudHandler`, alongside the existing `agent_id` and `grove_id` labels.
+  The server enriches the default logger with `broker_id` once the broker ID
+  is resolved during startup.
+- `BrokerID` added to `LogQueryOptions`, `BuildLogFilter()` generates
+  `labels.broker_id = "..."` filter clause, and both `/cloud-logs` and
+  `/cloud-logs/stream` endpoints accept a `broker_id` query parameter.
+- Hub client `GetCloudLogsOptions` includes `BrokerID` field, and the CLI
+  adds a `--broker` flag for filtering by runtime broker.
+- Web log viewer auto-discovers broker IDs from log entry labels and renders
+  a broker filter dropdown in the toolbar. The agent's own broker is seeded
+  from the agent detail response (`runtimeBrokerId`/`runtimeBrokerName`).
 
 ## Decisions
 
