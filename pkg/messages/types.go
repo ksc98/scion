@@ -115,6 +115,18 @@ func NewNotification(sender, recipient, msg, msgType string) *StructuredMessage 
 	}
 }
 
+// LogAttrs returns slog attributes for structured logging of this message.
+func (m *StructuredMessage) LogAttrs() []any {
+	return []any{
+		"sender", m.Sender,
+		"recipient", m.Recipient,
+		"msg_type", m.Type,
+		"urgent", m.Urgent,
+		"broadcasted", m.Broadcasted,
+		"plain", m.Plain,
+	}
+}
+
 // SenderPrefix returns the type prefix for a sender identity string.
 // For example, "user:alice" returns "user", "agent:code-reviewer" returns "agent".
 func SenderPrefix(identity string) string {

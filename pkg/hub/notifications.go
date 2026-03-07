@@ -36,6 +36,7 @@ type NotificationDispatcher struct {
 	events        *ChannelEventPublisher
 	getDispatcher func() AgentDispatcher // lazy getter; dispatcher may be set after startup
 	log           *slog.Logger
+	messageLog    *slog.Logger // dedicated message audit logger (nil = disabled)
 	stopCh        chan struct{}
 	stopOnce      sync.Once
 	wg            sync.WaitGroup
@@ -239,6 +240,16 @@ func (nd *NotificationDispatcher) dispatchToAgent(ctx context.Context, sub *stor
 	} else {
 		nd.log.Info("Notification dispatched to agent",
 			"subscriberID", sub.SubscriberID, "notificationID", notif.ID, "brokerID", subscriber.RuntimeBrokerID)
+		// Log to dedicated message audit log
+		if nd.messageLog != nil {
+			logAttrs := []any{
+				"agent_id", subscriber.ID,
+				"agent_name", subscriber.Name,
+				"notification_id", notif.ID,
+			}
+			logAttrs = append(logAttrs, structuredMsg.LogAttrs()...)
+			nd.messageLog.Info("notification message dispatched", logAttrs...)
+		}
 	}
 
 	// Mark dispatched regardless of success (best-effort)

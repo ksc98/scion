@@ -1526,23 +1526,15 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	// Log the message dispatch
+	// Log the message dispatch to dedicated message log
 	logAttrs := []any{
-		"subsystem", "hub.messages",
-		"agentID", agent.ID,
-		"agentName", agent.Name,
+		"agent_id", agent.ID,
+		"agent_name", agent.Name,
 	}
 	if structuredMsg != nil {
-		logAttrs = append(logAttrs,
-			"sender", structuredMsg.Sender,
-			"recipient", structuredMsg.Recipient,
-			"type", structuredMsg.Type,
-			"urgent", structuredMsg.Urgent,
-			"broadcasted", structuredMsg.Broadcasted,
-			"plain", structuredMsg.Plain,
-		)
+		logAttrs = append(logAttrs, structuredMsg.LogAttrs()...)
 	}
-	slog.Info("message dispatched", logAttrs...)
+	s.logMessage("message dispatched", logAttrs...)
 
 	// If a dispatcher is available, dispatch the message to the runtime broker
 	if dispatcher := s.GetDispatcher(); dispatcher != nil && agent.RuntimeBrokerID != "" {

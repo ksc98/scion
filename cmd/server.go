@@ -716,6 +716,24 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 		defer reqLogCleanup()
 	}
 
+	// Initialize dedicated message logger for message audit trail
+	msgLogCfg := logging.MessageLoggerConfig{
+		Component: component,
+		UseGCP:    useGCP,
+		Level:     logging.ResolveLogLevel(enableDebug),
+	}
+	if ch, ok := cloudHandler.(*logging.CloudHandler); ok && ch != nil {
+		msgLogCfg.CloudClient = ch.Client()
+	}
+	messageLogger, msgLogCleanup, err := logging.NewMessageLogger(msgLogCfg)
+	if err != nil {
+		slog.Warn("Failed to initialize message logger", "error", err)
+		messageLogger = nil
+	}
+	if msgLogCleanup != nil {
+		defer msgLogCleanup()
+	}
+
 	// Load configuration
 	cfg, err := config.LoadGlobalConfig(serverConfigPath)
 	if err != nil {
@@ -1142,6 +1160,9 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 		// Create Hub server
 		hubSrv = hub.New(hubCfg, s)
 		hubSrv.SetRequestLogger(requestLogger)
+		if messageLogger != nil {
+			hubSrv.SetMessageLogger(messageLogger)
+		}
 
 		// Initialize storage if configured
 		if storageBucket != "" {
@@ -1525,6 +1546,9 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 		// Create Runtime Broker server
 		rhSrv := runtimebroker.New(rhCfg, mgr, rt)
 		rhSrv.SetRequestLogger(requestLogger)
+		if messageLogger != nil {
+			rhSrv.SetMessageLogger(messageLogger)
+		}
 
 		// Register Broker health provider for composite web /healthz
 		if webSrv != nil {

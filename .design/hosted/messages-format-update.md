@@ -872,11 +872,15 @@ If a new CLI sends a `StructuredMessage` to an old Hub:
 - ✅ Remove legacy `agentNotificationPrefix` — structured message format replaces it
 - ⏳ Add `FormatMessage` method to `Harness` interface (deferred — both Claude and Gemini use the same `FormatForDelivery()` formatting; per-harness customization not yet needed)
 
-### Phase 3: Logging
-- Add structured logging for message dispatch with dedicated `scion-messages` log
-- Include `sender`, `recipient`, and `type` as log labels
-- Include standard `agent_id` labels in all message log entries
-- No database table — structured logs are the message audit trail
+### Phase 3: Logging ✅ COMPLETE
+- ✅ Add structured logging for message dispatch with dedicated `scion-messages` log
+- ✅ Include `sender`, `recipient`, and `type` as log labels (promoted to GCP labels via `messageCloudHandler`)
+- ✅ Include standard `agent_id` labels in all message log entries
+- ✅ No database table — structured logs are the message audit trail
+- ✅ Hub handler (`handleAgentMessage`) logs to dedicated message logger with full structured message attributes
+- ✅ Runtime broker handler (`sendMessage`) logs message delivery with structured attributes
+- ✅ Notification dispatcher logs notification message dispatch to dedicated message logger
+- ✅ `StructuredMessage.LogAttrs()` helper for consistent log attribute extraction
 
 ### Phase 4: Notification Channels
 - Define `NotificationChannel` interface

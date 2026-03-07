@@ -391,6 +391,9 @@ type Server struct {
 	// Dedicated request logger (nil = disabled)
 	requestLogger *slog.Logger
 
+	// Dedicated message logger for message audit trail (nil = uses messageLog fallback)
+	dedicatedMessageLog *slog.Logger
+
 	// Subsystem loggers for handler methods
 	agentLifecycleLog *slog.Logger
 	messageLog        *slog.Logger
@@ -678,6 +681,25 @@ func (s *Server) SetRequestLogger(l *slog.Logger) {
 	s.requestLogger = l
 }
 
+// SetMessageLogger sets the dedicated message audit logger.
+// When set, message dispatch events are logged to this logger in addition
+// to the standard subsystem logger, enabling a separate "scion-messages"
+// log stream in Cloud Logging.
+func (s *Server) SetMessageLogger(l *slog.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dedicatedMessageLog = l
+}
+
+// logMessage logs a message dispatch event to the dedicated message logger
+// (if configured) and the standard subsystem message logger.
+func (s *Server) logMessage(msg string, attrs ...any) {
+	s.messageLog.Info(msg, attrs...)
+	if s.dedicatedMessageLog != nil {
+		s.dedicatedMessageLog.Info(msg, attrs...)
+	}
+}
+
 // GetStorage returns the current storage backend.
 func (s *Server) GetStorage() storage.Storage {
 	s.mu.RLock()
@@ -799,7 +821,9 @@ func (s *Server) StartNotificationDispatcher() {
 		return
 	}
 
-	s.notificationDispatcher = NewNotificationDispatcher(s.store, ep, s.GetDispatcher, logging.Subsystem("hub.notifications"))
+	nd := NewNotificationDispatcher(s.store, ep, s.GetDispatcher, logging.Subsystem("hub.notifications"))
+	nd.messageLog = s.dedicatedMessageLog
+	s.notificationDispatcher = nd
 	s.notificationDispatcher.Start()
 }
 

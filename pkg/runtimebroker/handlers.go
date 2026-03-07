@@ -1306,6 +1306,16 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 
+	// Log message delivery
+	logAttrs := []any{"agent_id", id}
+	if req.StructuredMessage != nil {
+		logAttrs = append(logAttrs, req.StructuredMessage.LogAttrs()...)
+	}
+	s.messageLog.Info("message delivered", logAttrs...)
+	if s.dedicatedMessageLog != nil {
+		s.dedicatedMessageLog.Info("message delivered", logAttrs...)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 

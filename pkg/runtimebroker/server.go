@@ -190,6 +190,9 @@ type Server struct {
 	// Dedicated request logger (nil = disabled)
 	requestLogger *slog.Logger
 
+	// Dedicated message logger for message audit trail (nil = uses messageLog fallback)
+	dedicatedMessageLog *slog.Logger
+
 	// Subsystem loggers for handler methods
 	agentLifecycleLog *slog.Logger
 	messageLog        *slog.Logger
@@ -632,6 +635,13 @@ func (s *Server) SetRequestLogger(l *slog.Logger) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.requestLogger = l
+}
+
+// SetMessageLogger sets the dedicated message audit logger.
+func (s *Server) SetMessageLogger(l *slog.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dedicatedMessageLog = l
 }
 
 // SetHubClient sets the Hub client for template hydration.

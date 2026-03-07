@@ -173,6 +173,51 @@ func TestNewNotification(t *testing.T) {
 	}
 }
 
+func TestLogAttrs(t *testing.T) {
+	m := &StructuredMessage{
+		Version:     Version,
+		Sender:      "user:alice",
+		Recipient:   "agent:dev",
+		Msg:         "hello",
+		Type:        TypeInstruction,
+		Urgent:      true,
+		Broadcasted: false,
+		Plain:       true,
+	}
+
+	attrs := m.LogAttrs()
+
+	// Should contain 6 key-value pairs (12 elements)
+	if len(attrs) != 12 {
+		t.Fatalf("LogAttrs() returned %d elements, want 12", len(attrs))
+	}
+
+	// Verify key-value pairs
+	expected := map[string]any{
+		"sender":      "user:alice",
+		"recipient":   "agent:dev",
+		"msg_type":    TypeInstruction,
+		"urgent":      true,
+		"broadcasted": false,
+		"plain":       true,
+	}
+	for i := 0; i < len(attrs); i += 2 {
+		key, ok := attrs[i].(string)
+		if !ok {
+			t.Errorf("attrs[%d] is not a string key", i)
+			continue
+		}
+		want, exists := expected[key]
+		if !exists {
+			t.Errorf("unexpected key %q in LogAttrs", key)
+			continue
+		}
+		if attrs[i+1] != want {
+			t.Errorf("LogAttrs()[%q] = %v, want %v", key, attrs[i+1], want)
+		}
+	}
+}
+
 func TestSenderPrefix(t *testing.T) {
 	tests := []struct {
 		input string
