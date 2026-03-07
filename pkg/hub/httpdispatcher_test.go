@@ -62,7 +62,8 @@ type mockRuntimeBrokerClient struct {
 	lastGroveSlug   string
 	lastMessage     string
 	lastInterrupt   bool
-	lastResolvedEnv map[string]string
+	lastResolvedEnv  map[string]string
+	lastInlineConfig *api.ScionConfig
 	lastCreateReq   *RemoteCreateAgentRequest
 	lastDeleteOpts  struct{ deleteFiles, removeBranch bool }
 	returnErr       error
@@ -93,7 +94,7 @@ func (m *mockRuntimeBrokerClient) CreateAgent(ctx context.Context, brokerID, bro
 	}, nil
 }
 
-func (m *mockRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task, grovePath, groveSlug, harnessConfig string, resolvedEnv map[string]string, resolvedSecrets []ResolvedSecret) (*RemoteAgentResponse, error) {
+func (m *mockRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task, grovePath, groveSlug, harnessConfig string, resolvedEnv map[string]string, resolvedSecrets []ResolvedSecret, inlineConfig *api.ScionConfig) (*RemoteAgentResponse, error) {
 	m.startCalled = true
 	m.lastBrokerID = brokerID
 	m.lastEndpoint = brokerEndpoint
@@ -102,6 +103,7 @@ func (m *mockRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brok
 	m.lastGrovePath = grovePath
 	m.lastGroveSlug = groveSlug
 	m.lastResolvedEnv = resolvedEnv
+	m.lastInlineConfig = inlineConfig
 	if m.returnErr != nil {
 		return nil, m.returnErr
 	}
@@ -423,7 +425,7 @@ func TestHTTPRuntimeBrokerClient_StartAgent_InvalidJSONFails(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPRuntimeBrokerClient()
-	_, err := client.StartAgent(context.Background(), "host-1", server.URL, "test-agent", "", "", "", "", nil, nil)
+	_, err := client.StartAgent(context.Background(), "host-1", server.URL, "test-agent", "", "", "", "", nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected StartAgent to fail on invalid JSON response")
 	}
@@ -2620,5 +2622,83 @@ func TestHTTPAgentDispatcher_DispatchAgentStart_IncludesAgentIDAndSlug(t *testin
 	// Verify SCION_AGENT_SLUG is set to the agent's slug
 	if v, ok := mockClient.lastResolvedEnv["SCION_AGENT_SLUG"]; !ok || v != "my-agent" {
 		t.Errorf("expected SCION_AGENT_SLUG='my-agent', got '%s' (ok=%v)", v, ok)
+	}
+}
+
+// TestHTTPAgentDispatcher_DispatchAgentStart_IncludesInlineConfig verifies that
+// DispatchAgentStart passes the agent's InlineConfig to the broker so that
+// config changes made after provisioning (e.g. max_turns) are applied.
+func TestHTTPAgentDispatcher_DispatchAgentStart_IncludesInlineConfig(t *testing.T) {
+	ctx := context.Background()
+	memStore := createTestStore(t)
+
+	broker := &store.RuntimeBroker{
+		ID:       "broker-inline",
+		Name:     "test-broker",
+		Slug:     "test-broker",
+		Endpoint: "http://localhost:9800",
+		Status:   store.BrokerStatusOnline,
+	}
+	if err := memStore.CreateRuntimeBroker(ctx, broker); err != nil {
+		t.Fatalf("failed to create runtime broker: %v", err)
+	}
+
+	grove := &store.Grove{
+		ID:   "grove-inline",
+		Name: "test-grove",
+		Slug: "test-grove",
+	}
+	if err := memStore.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	provider := &store.GroveProvider{
+		GroveID:    "grove-inline",
+		BrokerID:   "broker-inline",
+		BrokerName: "test-broker",
+		LocalPath:  "/home/user/project/.scion",
+		Status:     store.BrokerStatusOnline,
+	}
+	if err := memStore.AddGroveProvider(ctx, provider); err != nil {
+		t.Fatalf("failed to add grove provider: %v", err)
+	}
+
+	mockClient := &mockRuntimeBrokerClient{}
+	dispatcher := NewHTTPAgentDispatcherWithClient(memStore, mockClient, false, slog.Default())
+
+	inlineCfg := &api.ScionConfig{
+		MaxTurns:    3,
+		MaxDuration: "30m",
+	}
+
+	agent := &store.Agent{
+		ID:              "agent-inline-cfg",
+		Name:            "inline-agent",
+		Slug:            "inline-agent",
+		GroveID:         "grove-inline",
+		RuntimeBrokerID: "broker-inline",
+		AppliedConfig: &store.AgentAppliedConfig{
+			HarnessConfig: "claude",
+			InlineConfig:  inlineCfg,
+		},
+	}
+
+	err := dispatcher.DispatchAgentStart(ctx, agent, "")
+	if err != nil {
+		t.Fatalf("DispatchAgentStart failed: %v", err)
+	}
+
+	if !mockClient.startCalled {
+		t.Fatal("expected StartAgent to be called")
+	}
+
+	if mockClient.lastInlineConfig == nil {
+		t.Fatal("expected InlineConfig to be passed to StartAgent")
+	}
+	if mockClient.lastInlineConfig.MaxTurns != 3 {
+		t.Errorf("expected MaxTurns=3, got %d", mockClient.lastInlineConfig.MaxTurns)
+	}
+	if mockClient.lastInlineConfig.MaxDuration != "30m" {
+		t.Errorf("expected MaxDuration='30m', got '%s'", mockClient.lastInlineConfig.MaxDuration)
 	}
 }

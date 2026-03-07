@@ -973,6 +973,7 @@ func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 		HarnessConfig   string               `json:"harnessConfig"`
 		ResolvedEnv     map[string]string    `json:"resolvedEnv"`
 		ResolvedSecrets []api.ResolvedSecret `json:"resolvedSecrets,omitempty"`
+		InlineConfig    *api.ScionConfig     `json:"inlineConfig,omitempty"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&startReq); err != nil {
@@ -1118,6 +1119,13 @@ func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 		}
 	}
 
+	// Apply updated InlineConfig to scion-agent.json before starting.
+	// This handles config changes made via the Hub PATCH endpoint after
+	// initial provisioning (e.g. max_turns set in the web configure form).
+	if startReq.InlineConfig != nil && opts.GrovePath != "" {
+		s.applyInlineConfigUpdate(id, opts.GrovePath, startReq.InlineConfig)
+	}
+
 	// Resolve saved profile for runtime selection
 	if opts.GrovePath != "" {
 		opts.Profile = agent.GetSavedProfile(id, opts.GrovePath)
@@ -1135,6 +1143,49 @@ func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 		Agent:   &agentResp,
 		Created: false,
 	})
+}
+
+// applyInlineConfigUpdate merges the updated InlineConfig into the agent's
+// scion-agent.json. This ensures config changes made via the Hub (e.g. limits
+// set in the web configure form) are applied before the agent starts.
+func (s *Server) applyInlineConfigUpdate(agentName, grovePath string, inlineConfig *api.ScionConfig) {
+	projectDir, err := config.GetResolvedProjectDir(grovePath)
+	if err != nil {
+		s.agentLifecycleLog.Warn("applyInlineConfigUpdate: failed to resolve project dir", "error", err)
+		return
+	}
+	agentDir := filepath.Join(projectDir, "agents", agentName)
+	cfgPath := filepath.Join(agentDir, "scion-agent.json")
+
+	// Load existing config
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		s.agentLifecycleLog.Warn("applyInlineConfigUpdate: failed to read scion-agent.json", "path", cfgPath, "error", err)
+		return
+	}
+	var existing api.ScionConfig
+	if err := json.Unmarshal(data, &existing); err != nil {
+		s.agentLifecycleLog.Warn("applyInlineConfigUpdate: failed to parse scion-agent.json", "error", err)
+		return
+	}
+
+	// Merge inline config over existing
+	merged := config.MergeScionConfig(&existing, inlineConfig)
+
+	// Write back
+	updated, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		s.agentLifecycleLog.Warn("applyInlineConfigUpdate: failed to marshal updated config", "error", err)
+		return
+	}
+	if err := os.WriteFile(cfgPath, updated, 0644); err != nil {
+		s.agentLifecycleLog.Warn("applyInlineConfigUpdate: failed to write scion-agent.json", "error", err)
+		return
+	}
+	if s.config.Debug {
+		s.agentLifecycleLog.Debug("applyInlineConfigUpdate: applied inline config update",
+			"agent", agentName, "maxTurns", inlineConfig.MaxTurns, "maxModelCalls", inlineConfig.MaxModelCalls)
+	}
 }
 
 func (s *Server) stopAgent(w http.ResponseWriter, r *http.Request, id string) {
