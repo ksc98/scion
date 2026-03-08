@@ -835,6 +835,7 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool, i
 	// won't trigger a sync warning on the next 'scion ls'.
 	if resp.Agent != nil && !resp.Agent.Created.IsZero() {
 		hubsync.UpdateLastSyncedAt(hubCtx.GrovePath, resp.Agent.Created, hubCtx.IsGlobal)
+		hubsync.AddSyncedAgent(hubCtx.GrovePath, agentName)
 	}
 
 	// Print info line when broker was auto-resolved (not explicitly specified)

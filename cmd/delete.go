@@ -229,6 +229,7 @@ func deleteAgentsViaHub(hubCtx *HubContext, agentNames []string) error {
 		// time is unavailable in this flow, UpdateLastSyncedAt falls back to local UTC.
 		if hubCtx != nil && hubCtx.GrovePath != "" {
 			hubsync.UpdateLastSyncedAt(hubCtx.GrovePath, time.Time{}, hubCtx.IsGlobal)
+			hubsync.RemoveSyncedAgent(hubCtx.GrovePath, agentName)
 		}
 		if branchDeleted {
 			statusf("Git branch associated with agent '%s' deleted.\n", agentName)

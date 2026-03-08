@@ -1561,3 +1561,209 @@ func TestCompareAgents_LocalOnlyStaleAfterWatermark(t *testing.T) {
 		t.Fatal("expected stale-local only result to be treated as in-sync")
 	}
 }
+
+// TestCompareAgents_PreviouslySyncedDeletedFromHub verifies that a local agent
+// that was previously synced with the hub but has since been deleted hub-side
+// is classified as StaleLocal, even when its local timestamp is newer than the
+// watermark (the scenario that previously caused the bug).
+func TestCompareAgents_PreviouslySyncedDeletedFromHub(t *testing.T) {
+	groveID := "test-grove-id"
+	brokerID := "test-broker-id"
+	watermark := time.Date(2026, 3, 3, 12, 0, 0, 0, time.UTC)
+
+	tmpDir := t.TempDir()
+
+	// Create local agent directory with a timestamp NEWER than watermark
+	agentDir := filepath.Join(tmpDir, "agents", "deleted-from-hub")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatalf("failed to create agent dir: %v", err)
+	}
+	configPath := filepath.Join(agentDir, "scion-agent.json")
+	if err := os.WriteFile(configPath, []byte(`{"harness":"claude"}`), 0644); err != nil {
+		t.Fatalf("failed to write scion-agent.json: %v", err)
+	}
+	// Set mtime to AFTER watermark — this is the scenario that triggers the bug
+	newerTime := watermark.Add(time.Hour)
+	if err := os.Chtimes(configPath, newerTime, newerTime); err != nil {
+		t.Fatalf("failed to set config mtime: %v", err)
+	}
+
+	// Save state with the agent in SyncedAgents (it was previously synced)
+	if err := config.SaveGroveState(tmpDir, &config.GroveState{
+		LastSyncedAt: watermark.Format(time.RFC3339Nano),
+		SyncedAgents: []string{"deleted-from-hub"},
+	}); err != nil {
+		t.Fatalf("failed to save state.yaml: %v", err)
+	}
+
+	// Hub returns no agents — "deleted-from-hub" was deleted via web UI
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/agents") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"agents":     []map[string]interface{}{},
+				"serverTime": time.Now().UTC().Format(time.RFC3339Nano),
+				"totalCount": 0,
+				"nextCursor": "",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client, err := hubclient.New(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create hub client: %v", err)
+	}
+	hubCtx := &HubContext{
+		Client:    client,
+		GroveID:   groveID,
+		BrokerID:  brokerID,
+		GrovePath: tmpDir,
+		Settings:  &config.Settings{},
+	}
+
+	result, err := CompareAgents(context.Background(), hubCtx)
+	if err != nil {
+		t.Fatalf("CompareAgents failed: %v", err)
+	}
+
+	if len(result.ToRegister) != 0 {
+		t.Fatalf("expected no ToRegister agents, got %v", result.ToRegister)
+	}
+	if len(result.StaleLocal) != 1 || result.StaleLocal[0] != "deleted-from-hub" {
+		t.Fatalf("expected deleted-from-hub in StaleLocal, got %v", result.StaleLocal)
+	}
+	if !result.IsInSync() {
+		t.Fatal("expected stale-local only result to be treated as in-sync")
+	}
+}
+
+// TestCompareAgents_NewLocalAgentNotInSyncedList verifies that a genuinely new
+// local agent (not in SyncedAgents) is still classified as ToRegister.
+func TestCompareAgents_NewLocalAgentNotInSyncedList(t *testing.T) {
+	groveID := "test-grove-id"
+	brokerID := "test-broker-id"
+	watermark := time.Date(2026, 3, 3, 12, 0, 0, 0, time.UTC)
+
+	tmpDir := t.TempDir()
+
+	// Create a genuinely new local agent
+	agentDir := filepath.Join(tmpDir, "agents", "brand-new-agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatalf("failed to create agent dir: %v", err)
+	}
+	configPath := filepath.Join(agentDir, "scion-agent.json")
+	if err := os.WriteFile(configPath, []byte(`{"harness":"claude"}`), 0644); err != nil {
+		t.Fatalf("failed to write scion-agent.json: %v", err)
+	}
+
+	// Save state with SyncedAgents that does NOT include this agent
+	if err := config.SaveGroveState(tmpDir, &config.GroveState{
+		LastSyncedAt: watermark.Format(time.RFC3339Nano),
+		SyncedAgents: []string{"some-other-agent"},
+	}); err != nil {
+		t.Fatalf("failed to save state.yaml: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/agents") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"agents":     []map[string]interface{}{},
+				"serverTime": time.Now().UTC().Format(time.RFC3339Nano),
+				"totalCount": 0,
+				"nextCursor": "",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client, err := hubclient.New(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create hub client: %v", err)
+	}
+	hubCtx := &HubContext{
+		Client:    client,
+		GroveID:   groveID,
+		BrokerID:  brokerID,
+		GrovePath: tmpDir,
+		Settings:  &config.Settings{},
+	}
+
+	result, err := CompareAgents(context.Background(), hubCtx)
+	if err != nil {
+		t.Fatalf("CompareAgents failed: %v", err)
+	}
+
+	if len(result.ToRegister) != 1 || result.ToRegister[0] != "brand-new-agent" {
+		t.Fatalf("expected brand-new-agent in ToRegister, got %v", result.ToRegister)
+	}
+	if len(result.StaleLocal) != 0 {
+		t.Fatalf("expected no StaleLocal agents, got %v", result.StaleLocal)
+	}
+}
+
+// TestUpdateSyncedAgents verifies that UpdateSyncedAgents correctly saves
+// the synced agent list to state.yaml.
+func TestUpdateSyncedAgents(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	UpdateSyncedAgents(tmpDir, []string{"charlie", "alpha", "bravo"})
+
+	state, err := config.LoadGroveState(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to load state: %v", err)
+	}
+
+	// Should be sorted
+	expected := []string{"alpha", "bravo", "charlie"}
+	if len(state.SyncedAgents) != len(expected) {
+		t.Fatalf("expected %d synced agents, got %d: %v", len(expected), len(state.SyncedAgents), state.SyncedAgents)
+	}
+	for i, name := range expected {
+		if state.SyncedAgents[i] != name {
+			t.Fatalf("expected synced agent %d to be %q, got %q", i, name, state.SyncedAgents[i])
+		}
+	}
+}
+
+// TestAddRemoveSyncedAgent verifies individual add/remove operations.
+func TestAddRemoveSyncedAgent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Start with some agents
+	UpdateSyncedAgents(tmpDir, []string{"agent-a", "agent-b"})
+
+	// Add a new one
+	AddSyncedAgent(tmpDir, "agent-c")
+	state, err := config.LoadGroveState(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to load state: %v", err)
+	}
+	if len(state.SyncedAgents) != 3 {
+		t.Fatalf("expected 3 synced agents after add, got %v", state.SyncedAgents)
+	}
+
+	// Add duplicate — should be idempotent
+	AddSyncedAgent(tmpDir, "agent-c")
+	state, _ = config.LoadGroveState(tmpDir)
+	if len(state.SyncedAgents) != 3 {
+		t.Fatalf("expected 3 synced agents after duplicate add, got %v", state.SyncedAgents)
+	}
+
+	// Remove one
+	RemoveSyncedAgent(tmpDir, "agent-b")
+	state, _ = config.LoadGroveState(tmpDir)
+	if len(state.SyncedAgents) != 2 {
+		t.Fatalf("expected 2 synced agents after remove, got %v", state.SyncedAgents)
+	}
+	for _, name := range state.SyncedAgents {
+		if name == "agent-b" {
+			t.Fatal("agent-b should have been removed")
+		}
+	}
+}

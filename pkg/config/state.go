@@ -24,7 +24,8 @@ import (
 // GroveState holds runtime-managed state for a grove.
 // This is stored in state.yaml, separate from user-editable configuration.
 type GroveState struct {
-	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
+	LastSyncedAt string   `yaml:"last_synced_at,omitempty"`
+	SyncedAgents []string `yaml:"synced_agents,omitempty"`
 }
 
 // LoadGroveState reads grove state from state.yaml in the given grove path.

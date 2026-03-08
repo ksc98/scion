@@ -427,8 +427,9 @@ func EnsureHubReady(grovePath string, opts EnsureHubReadyOptions) (*HubContext, 
 				"Or use local-only mode: scion --no-hub <command>")
 		}
 	} else {
-		// Already in sync — update the watermark to keep it current
+		// Already in sync — update the watermark and synced agents to keep current
 		UpdateLastSyncedAt(hubCtx.GrovePath, syncResult.ServerTime, hubCtx.IsGlobal)
+		UpdateSyncedAgents(hubCtx.GrovePath, collectHubAgentNames(syncResult))
 	}
 
 	return hubCtx, nil
@@ -497,6 +498,92 @@ func UpdateLastSyncedAt(grovePath string, hubTime time.Time, isGlobal bool) {
 	}
 }
 
+// UpdateSyncedAgents records the set of agent names currently known to be
+// synced with the hub. This is used to detect agents that were deleted from the
+// hub: a local-only agent whose name appears in SyncedAgents was previously
+// registered and has since been removed hub-side.
+func UpdateSyncedAgents(grovePath string, agents []string) {
+	if strings.TrimSpace(grovePath) == "" {
+		return
+	}
+
+	lastSyncedAtMu.Lock()
+	defer lastSyncedAtMu.Unlock()
+
+	currentState, err := config.LoadGroveState(grovePath)
+	if err != nil {
+		debugf("Warning: failed to load state.yaml for synced agents update: %v", err)
+		currentState = &config.GroveState{}
+	}
+
+	sorted := make([]string, len(agents))
+	copy(sorted, agents)
+	// Sort for deterministic output
+	for i := 1; i < len(sorted); i++ {
+		for j := i; j > 0 && sorted[j] < sorted[j-1]; j-- {
+			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+		}
+	}
+	currentState.SyncedAgents = sorted
+
+	if err := saveGroveStateAtomic(grovePath, currentState); err != nil {
+		debugf("Warning: failed to save synced agents to state.yaml: %v", err)
+	}
+}
+
+// AddSyncedAgent adds a single agent name to the synced agents list in state.yaml.
+func AddSyncedAgent(grovePath, agentName string) {
+	if strings.TrimSpace(grovePath) == "" || strings.TrimSpace(agentName) == "" {
+		return
+	}
+
+	lastSyncedAtMu.Lock()
+	defer lastSyncedAtMu.Unlock()
+
+	currentState, err := config.LoadGroveState(grovePath)
+	if err != nil {
+		currentState = &config.GroveState{}
+	}
+
+	for _, name := range currentState.SyncedAgents {
+		if name == agentName {
+			return // already present
+		}
+	}
+	currentState.SyncedAgents = append(currentState.SyncedAgents, agentName)
+
+	if err := saveGroveStateAtomic(grovePath, currentState); err != nil {
+		debugf("Warning: failed to add synced agent to state.yaml: %v", err)
+	}
+}
+
+// RemoveSyncedAgent removes a single agent name from the synced agents list in state.yaml.
+func RemoveSyncedAgent(grovePath, agentName string) {
+	if strings.TrimSpace(grovePath) == "" || strings.TrimSpace(agentName) == "" {
+		return
+	}
+
+	lastSyncedAtMu.Lock()
+	defer lastSyncedAtMu.Unlock()
+
+	currentState, err := config.LoadGroveState(grovePath)
+	if err != nil {
+		return
+	}
+
+	filtered := currentState.SyncedAgents[:0]
+	for _, name := range currentState.SyncedAgents {
+		if name != agentName {
+			filtered = append(filtered, name)
+		}
+	}
+	currentState.SyncedAgents = filtered
+
+	if err := saveGroveStateAtomic(grovePath, currentState); err != nil {
+		debugf("Warning: failed to remove synced agent from state.yaml: %v", err)
+	}
+}
+
 // CompareAgents compares local agents with Hub agents for the current broker.
 func CompareAgents(ctx context.Context, hubCtx *HubContext) (*SyncResult, error) {
 	result := &SyncResult{}
@@ -556,6 +643,14 @@ func CompareAgents(ctx context.Context, hubCtx *HubContext) (*SyncResult, error)
 		debugf("lastSyncedAt from state.yaml: %s", lastSyncedAtStr)
 	}
 
+	// Build set of previously synced agents from state.yaml.
+	// Agents in this set were registered on the hub during a prior sync cycle.
+	// If they are local-only now, it means they were deleted from the hub.
+	previouslySynced := make(map[string]bool, len(groveState.SyncedAgents))
+	for _, name := range groveState.SyncedAgents {
+		previouslySynced[name] = true
+	}
+
 	// Fall back to legacy settings if state.yaml doesn't have it
 	if lastSyncedAtStr == "" && hubCtx.Settings.Hub != nil && hubCtx.Settings.Hub.LastSyncedAt != "" {
 		lastSyncedAtStr = hubCtx.Settings.Hub.LastSyncedAt
@@ -576,6 +671,14 @@ func CompareAgents(ctx context.Context, hubCtx *HubContext) (*SyncResult, error)
 	for _, name := range localAgents {
 		if hubAgentMap[name] {
 			result.InSync = append(result.InSync, name)
+			continue
+		}
+
+		// If the agent was previously synced with the hub but is no longer on the
+		// hub, it was deleted hub-side. Mark it stale regardless of timestamps.
+		if previouslySynced[name] {
+			result.StaleLocal = append(result.StaleLocal, name)
+			debugf("Agent %s local-only but previously synced (deleted from hub), marking StaleLocal", name)
 			continue
 		}
 
@@ -764,7 +867,35 @@ func ExecuteSync(ctx context.Context, hubCtx *HubContext, result *SyncResult, au
 	// Update lastSyncedAt watermark after successful sync
 	UpdateLastSyncedAt(hubCtx.GrovePath, result.ServerTime, hubCtx.IsGlobal)
 
+	// Record the set of agents now known to be on the hub for this broker.
+	// After sync: InSync + newly registered + RemoteOnly + Pending are all on hub.
+	UpdateSyncedAgents(hubCtx.GrovePath, collectHubAgentNames(result))
+
 	return nil
+}
+
+// collectHubAgentNames returns the names of all agents expected to be on the
+// hub after a successful sync: InSync + ToRegister (now registered) +
+// RemoteOnly + Pending.
+func collectHubAgentNames(result *SyncResult) []string {
+	seen := make(map[string]bool)
+	for _, name := range result.InSync {
+		seen[name] = true
+	}
+	for _, name := range result.ToRegister {
+		seen[name] = true
+	}
+	for _, ref := range result.RemoteOnly {
+		seen[ref.Name] = true
+	}
+	for _, ref := range result.Pending {
+		seen[ref.Name] = true
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	return names
 }
 
 // GetLocalAgents returns agent names from .scion/agents/.
