@@ -79,27 +79,36 @@ In non-git projects (where no `.git` directory is found):
 
 ---
 
-## 4. Git Groves (Hub-First Remote Workspaces)
+## 4. Hub-First Remote Workspaces
 
-When working with a Scion Hub, groves can be created directly from a git repository URL. In this mode, the agent's container **clones the repository at startup** — no local checkout is needed on the host machine.
+When working with a Scion Hub, you can create remote workspaces that decouple agent execution from your local machine. The Hub supports two types of remote workspaces:
+
+### Hub-Native Groves
+Hub-Native groves allow you to create project workspaces directly through the Hub API and Web Dashboard **without an external Git repository**. 
+- The Hub automatically initializes a seeded `.scion` structure.
+- Workspace files are managed locally by the Hub and its distributed runtime brokers.
+- You can directly download individual workspace files or generate ZIP archives of entire groves using the Hub API or Web Dashboard, making it easy to export your data.
+
+### Git Groves
+Groves can also be created directly from a remote git repository URL. In this mode, the agent's container **clones the repository at startup**.
 
 ```bash
-# Create a grove from a git URL
+# Create a git grove from a URL (Hub-managed)
 scion hub grove create https://github.com/org/repo.git
 ```
 
-### How It Works
+#### How Git Groves Work
 
 1. The Hub stores the git remote URL and default branch as grove metadata.
 2. When an agent starts, the Runtime Broker injects `SCION_GIT_CLONE_URL`, `SCION_GIT_BRANCH`, and `SCION_GIT_DEPTH` as environment variables.
 3. The `sciontool init` process inside the container clones the repo into `/workspace` before the harness starts.
 4. A feature branch `scion/<agent-name>` is created and checked out automatically.
 
-### Agent Branch Strategy
+#### Agent Branch Strategy
 
 Each agent gets its own branch named `scion/<agent-name>`. This prevents conflicts when multiple agents work on the same repository concurrently.
 
-### Shallow Clones
+#### Shallow Clones
 
 By default, git groves use a shallow clone with `depth=1` for fast startup. If an agent needs full history (e.g., for `git log` or `git blame`), it can fetch the rest:
 
@@ -107,7 +116,7 @@ By default, git groves use a shallow clone with `depth=1` for fast startup. If a
 git fetch --unshallow
 ```
 
-### Environment Variables
+#### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|

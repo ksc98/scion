@@ -60,6 +60,8 @@ scion hub env set --broker=my-gpu-node CUDA_VISIBLE_DEVICES=0
 Secrets are write-only. Once set, their values cannot be retrieved via the CLI or API; they are only decrypted and injected into the agent container at runtime.
 
 ### Setting Secrets
+Secrets can be set manually via the CLI or Web Dashboard, or gathered interactively during agent creation.
+
 ```bash
 # Set a user-scoped secret
 scion hub secret set ANTHROPIC_API_KEY sk-ant-api01-...
@@ -67,6 +69,9 @@ scion hub secret set ANTHROPIC_API_KEY sk-ant-api01-...
 # Set a grove-scoped secret
 scion hub secret set --grove DB_PASSWORD my-secure-password
 ```
+
+**Interactive Secrets-Gather:**
+If a template requires specific secrets (defined in `scion-agent.yaml`), Scion utilizes an interactive `secrets-gather` pipeline during agent creation. It will automatically prompt you to securely input any missing values and store them in the backend, ensuring sensitive credentials are never written to plain text configuration files.
 
 ### Secret Types
 Secrets can be projected into the agent container in three ways:

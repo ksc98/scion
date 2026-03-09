@@ -17,20 +17,30 @@ The **Scion Hub** is the central brain of a hosted Scion architecture. It mainta
 
 ## Running the Hub
 
-The Hub is part of the main `scion` binary. You can start it using the `server` command:
+The Hub is part of the main `scion` binary. You can start it using the `server start` command. By default, the server runs as a background **daemon**, freeing up your terminal:
 
 ```bash
-# Start the Hub and a local Runtime Broker
-scion server
+# Start the Hub, Web Dashboard, and a local Runtime Broker (background daemon)
+scion server start --workstation
 
-# Start ONLY the Hub
-scion server --hub
+# Start ONLY the Hub (requires explicit component flags)
+scion server start --enable-hub
 ```
 
 ### Hub vs. Broker Processes
-While they can run in the same process (the default for `scion server`), they serve distinct roles:
-- **The Hub** is the stateless control plane. It should be accessible via a public or internal URL.
-- **The Broker** is the execution host. It registers with a Hub and executes agents. Brokers can run behind NAT or firewalls, as they establish outbound connections to the Hub.
+While they can run in the same process—known as **Combo Mode** (the default for `scion server start --workstation`)—they serve distinct roles:
+- **The Hub** is the stateless control plane. It provides the API and Web Dashboard, and should be accessible via a public or internal URL.
+- **The Broker** is the execution host. It registers with a Hub and executes agents. Brokers can run behind NAT or firewalls, as they establish outbound connections to the Hub. You can connect multiple external brokers to a single Hub.
+
+To manage the background daemon, use:
+- `scion server status`
+- `scion server restart`
+- `scion server stop`
+
+If you prefer to run the server interactively in the foreground:
+```bash
+scion server start --workstation --foreground
+```
 
 ## Configuration
 

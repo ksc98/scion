@@ -79,17 +79,22 @@ Secrets are encrypted and never returned via the API; they are securely injected
 
 See the [Secret & Environment Management guide](/hub-user/secrets) for details on scoping and projection modes.
 
-## Git-Based Groves
+## Remote & Hub-Native Groves
 
-Instead of linking a local directory, you can create a grove directly from a git repository URL. This is useful for CI/CD workflows, remote-only development, or teams that want agents to work on repositories without requiring a local checkout.
+Instead of linking a local directory, you can create groves directly on the Hub. This decouples agent execution from your local machine, allowing for remote-only development.
 
-### Creating a Grove from a Git URL
+### Hub-Native Groves
+Hub-Native groves allow you to create project workspaces without any external Git repository. The Hub manages the workspace files directly, and you can download or ZIP the workspace via the Web Dashboard.
 
 ```bash
-scion hub grove create https://github.com/org/my-project.git
+# Target a Hub-Native grove remotely by its slug:
+scion start my-agent --grove my-hub-native-slug "do some work"
 ```
 
-This registers the repository on the Hub, detects the default branch, and stores the clone URL as grove metadata. You can customize the grove with flags:
+### Git Groves
+You can also create a grove directly from a git repository URL. The agent's container will clone the repository at startup.
+
+#### Creating a Grove from a Git URL
 
 ```bash
 scion hub grove create https://github.com/org/my-project.git \
@@ -98,20 +103,20 @@ scion hub grove create https://github.com/org/my-project.git \
   --branch develop
 ```
 
-### Setting Up Authentication
+#### Setting Up Authentication
 
 For private repositories, set a `GITHUB_TOKEN` secret on the grove. The token needs at minimum **Contents: Read** permission.
 
 ```bash
-scion hub secret set --grove GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+scion hub secret set --grove my-project GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 ```
 
-### Starting Agents
+#### Starting Agents Remotely
 
-Once the grove is created and the token is set, start agents as usual:
+Once the grove is created, you can start agents targeting the remote grove directly using the `--grove` flag with the slug or git URL:
 
 ```bash
-scion hub agent create --grove my-project --task "implement feature X"
+scion start my-agent --grove my-project "implement feature X"
 ```
 
 The agent's container will clone the repository at startup, create a `scion/<agent-name>` branch, and begin working.
@@ -123,13 +128,13 @@ The agent's container will clone the repository at startup, create a `scion/<age
 scion hub grove create https://github.com/acme/backend.git --name "Acme Backend"
 
 # 2. Set the GitHub token for private repo access
-scion hub secret set --grove GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+scion hub secret set --grove acme-backend GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 
-# 3. Start an agent on the grove
-scion hub agent create --grove acme-backend --task "add user authentication"
+# 3. Start an agent remotely on the grove
+scion start my-agent --grove acme-backend "add user authentication"
 
 # 4. Monitor the agent
-scion hub agents --grove acme-backend
+scion list --grove acme-backend
 ```
 
 ## Collaboration

@@ -40,8 +40,8 @@ The `harness` field is no longer supported in `scion-agent.yaml`. Templates must
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `max_turns` | int | Maximum number of LLM turns before the agent stops. |
-| `max_duration` | string | Maximum runtime duration (e.g., `"2h"`, `"30m"`). |
+| `max_turns` | int | Maximum number of LLM turns before the agent stops. Exceeding this triggers a `LIMITS_EXCEEDED` state and termination. |
+| `max_duration` | string | Maximum runtime duration (e.g., `"2h"`, `"30m"`). Exceeding this triggers a `LIMITS_EXCEEDED` state and termination. |
 | `resources` | object | Container resource requests/limits (see below). |
 
 ### Resource Specification

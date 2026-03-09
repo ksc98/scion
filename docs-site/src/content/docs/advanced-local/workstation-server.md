@@ -17,7 +17,7 @@ This enables you to:
 
 ## Starting the Server
 
-To start the workstation server, use the `server start` command with the `--workstation` flag:
+To start the workstation server, use the `server start` command with the `--workstation` flag. By default, the server runs as a persistent background **daemon**, freeing up your terminal:
 
 ```bash
 scion server start --workstation
@@ -27,6 +27,17 @@ This command performs several actions simultaneously:
 1.  **Starts the Hub**: Binds a local API and Web server (defaulting to port 8080).
 2.  **Starts a Broker**: Binds a local broker interface to execute containers.
 3.  **Links Them**: Automatically registers the local broker with the local hub.
+
+Because it runs as a background daemon, you can manage its lifecycle using:
+- `scion server status`: View running status, PID, and log file location.
+- `scion server restart`: Restart the daemon.
+- `scion server stop`: Stop the background process.
+
+If you prefer to run the server interactively, use the `--foreground` flag:
+
+```bash
+scion server start --workstation --foreground
+```
 
 You can now navigate to `http://localhost:8080` in your browser to access the Web Dashboard.
 

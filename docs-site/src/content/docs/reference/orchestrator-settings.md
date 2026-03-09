@@ -144,7 +144,7 @@ harness_configs:
 
 ### Required Secrets
 
-Define secrets that must be provided to the agent.
+Define secrets that must be provided to the agent. During agent creation, Scion utilizes an interactive `secrets-gather` pipeline to prompt for missing values if they are not already securely stored on the backend, ensuring sensitive credentials are never written to plain text configuration files.
 
 ```yaml
 secrets:

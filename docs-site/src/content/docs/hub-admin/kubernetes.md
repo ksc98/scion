@@ -15,7 +15,7 @@ Use `scion doctor` to verify prerequisites before starting agents.
 
 ## Configuration
 
-Configure the Kubernetes runtime in your `scion-agent.yaml` settings:
+Configure the Kubernetes runtime in your global `~/.scion/settings.yaml`:
 
 ```yaml
 runtimes:
@@ -33,7 +33,7 @@ profiles:
 
 ### Agent-Level Kubernetes Configuration
 
-Per-agent or per-template Kubernetes settings in `scion-agent.yaml`:
+Per-agent or per-template Kubernetes settings in `~/.scion/settings.yaml`:
 
 ```yaml
 kubernetes:
@@ -73,6 +73,17 @@ resources:
 ```
 
 Extended resources (GPUs, custom devices) use `kubernetes.resources`.
+
+### GKE Workload Identity
+
+When running in Google Kubernetes Engine (GKE), Scion natively supports Workload Identity for secure access to GCP APIs (like Vertex AI or Cloud Storage) without passing long-lived service account keys.
+
+1. Enable the `gke: true` flag in your runtime configuration.
+2. Ensure your cluster is configured with Workload Identity.
+3. Bind a Kubernetes Service Account to a Google Service Account.
+4. Set the `serviceAccountName` in the agent's Kubernetes configuration to match the bound KSA.
+
+This provides the agent container with an ambient identity, which the underlying harness (e.g., Gemini or Claude via Vertex) can automatically resolve using Application Default Credentials (ADC).
 
 ## Support Matrix
 

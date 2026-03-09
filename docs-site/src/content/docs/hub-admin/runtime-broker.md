@@ -30,10 +30,12 @@ Broker -> Storage: "Fetch Template"
 Agent -> Hub: "Status: RUNNING"
 ```
 
-### Solo vs. Hosted Mode
+### Deployment Modes
 
 *   **Solo Mode**: The Scion CLI runs a local, ephemeral Runtime Broker automatically when you start an agent.
 *   **Hosted Mode**: A dedicated Runtime Broker process registers with a Scion Hub and waits for instructions. This allows teams to share powerful compute resources or run agents in specific network environments.
+*   **Combo Mode (Co-located)**: The Broker runs in the same process as the Hub (the default for `scion server start --workstation`). 
+*   **Multi-Hub Connectivity**: A single Runtime Broker can maintain simultaneous connections to multiple different Hubs. It manages a multi-credential store and per-connection heartbeats, allowing a broker to be co-located with one Hub (Combo Mode) while serving other remote Hubs concurrently.
 
 ## Administration
 

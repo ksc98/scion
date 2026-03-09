@@ -23,7 +23,7 @@ Scion operates in multiple contexts, each with specific security requirements. A
 
 For both Web and CLI access, Scion relies on standard OAuth 2.0 providers (Google and GitHub).
 
-- **Web Flow**: Standard Authorization Code flow. The Koa-based web frontend handles the callback and exchanges the provider token for a session-bound Hub access token.
+- **Web Flow**: Standard Authorization Code flow. The embedded Go web server handles the callback and exchanges the provider token for a session-bound Hub access token.
 - **CLI Flow**: Uses a localhost callback server (defaulting to port `18271`). The CLI opens the user's browser for authentication and receives the authorization code via the local server.
 - **PKCE**: The CLI uses Proof Key for Code Exchange (PKCE) to prevent authorization code injection attacks.
 
