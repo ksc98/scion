@@ -88,6 +88,7 @@ import '../components/pages/profile-env-vars.js';
 import '../components/pages/profile-secrets.js';
 import '../components/pages/profile-settings.js';
 import '../components/pages/settings.js';
+import '../components/pages/admin-server-config.js';
 import '../components/pages/not-found.js';
 import '../components/pages/login.js';
 
@@ -136,6 +137,7 @@ const ROUTES: { pattern: RegExp; tag: string }[] = [
   { pattern: /^\/admin\/users$/, tag: 'scion-page-admin-users' },
   { pattern: /^\/admin\/groups$/, tag: 'scion-page-admin-groups' },
   { pattern: /^\/admin\/groups\/[^/]+$/, tag: 'scion-page-admin-group-detail' },
+  { pattern: /^\/admin\/server-config$/, tag: 'scion-page-admin-server-config' },
   { pattern: /^\/settings$/, tag: 'scion-page-settings' },
   { pattern: /^\/profile\/env$/, tag: 'scion-page-profile-env-vars' },
   { pattern: /^\/profile\/secrets$/, tag: 'scion-page-profile-secrets' },
@@ -163,7 +165,7 @@ const PROFILE_ROUTES = new Set(['scion-page-profile-env-vars', 'scion-page-profi
 /**
  * Routes that require admin role. Non-admin users are redirected to dashboard.
  */
-const ADMIN_ROUTES = new Set(['scion-page-settings', 'scion-page-admin-scheduler', 'scion-page-admin-users', 'scion-page-admin-groups', 'scion-page-admin-group-detail']);
+const ADMIN_ROUTES = new Set(['scion-page-settings', 'scion-page-admin-scheduler', 'scion-page-admin-users', 'scion-page-admin-groups', 'scion-page-admin-group-detail', 'scion-page-admin-server-config']);
 
 /**
  * Initialize the client-side application
@@ -225,6 +227,7 @@ async function init(): Promise<void> {
     customElements.whenDefined('scion-page-admin-groups'),
     customElements.whenDefined('scion-page-admin-group-detail'),
     customElements.whenDefined('scion-page-settings'),
+    customElements.whenDefined('scion-page-admin-server-config'),
     customElements.whenDefined('scion-page-profile-env-vars'),
     customElements.whenDefined('scion-page-profile-secrets'),
     customElements.whenDefined('scion-page-profile-settings'),

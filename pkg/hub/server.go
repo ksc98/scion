@@ -1323,6 +1323,7 @@ func (s *Server) registerRoutes() {
 	// Admin system endpoints
 	s.mux.HandleFunc("/api/v1/admin/maintenance", s.handleAdminMaintenance)
 	s.mux.HandleFunc("/api/v1/admin/scheduler", s.handleAdminScheduler)
+	s.mux.HandleFunc("/api/v1/admin/server-config", s.handleAdminServerConfig)
 
 	// Notification endpoints (user-facing)
 	s.mux.HandleFunc("/api/v1/notifications", s.handleNotifications)
