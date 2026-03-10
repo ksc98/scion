@@ -364,7 +364,7 @@ func GetGroveID(hubCtx *HubContext) (string, error) {
 }
 
 func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
-	agentName := args[0]
+	agentName := api.Slugify(args[0])
 	task := strings.Join(args[1:], " ")
 
 	// Reject --format json with --attach (mutually exclusive)
@@ -434,7 +434,7 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		agents, err := rt.List(context.Background(), map[string]string{"scion.name": agentName})
 		if err == nil {
 			for _, a := range agents {
-				if a.Name == agentName || a.ID == agentName || strings.TrimPrefix(a.Name, "/") == agentName {
+				if strings.EqualFold(a.Name, agentName) || a.ID == agentName || strings.EqualFold(strings.TrimPrefix(a.Name, "/"), agentName) {
 					status := strings.ToLower(a.ContainerStatus)
 					isRunning := strings.HasPrefix(status, "up") || status == "running"
 					if isRunning {

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/agent"
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/messages"
@@ -58,7 +59,7 @@ If --broadcast is used, the agent name can be omitted and the message will be se
 			if len(args) < 2 {
 				return fmt.Errorf("agent name and message are required unless --broadcast is used")
 			}
-			agentName = args[0]
+			agentName = api.Slugify(args[0])
 			message = strings.Join(args[1:], " ")
 		}
 

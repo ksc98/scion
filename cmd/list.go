@@ -192,11 +192,16 @@ func hubAgentToAgentInfo(a hubclient.Agent) api.AgentInfo {
 	// Prefer structured Phase/Activity fields; fall back to legacy Status field.
 	phase, activity := hubAgentPhaseActivity(a.Phase, a.Activity, a.Status)
 
+	// Prefer slug for display name to ensure consistent case-insensitive naming
+	displayName := a.Slug
+	if displayName == "" {
+		displayName = a.Name
+	}
 	info := api.AgentInfo{
 		ID:                a.ID,
 		Slug:              a.Slug,
 		ContainerID:       a.ContainerID,
-		Name:              a.Name,
+		Name:              displayName,
 		Template:          a.Template,
 		HarnessConfig:     a.HarnessConfig,
 		HarnessAuth:       a.HarnessAuth,

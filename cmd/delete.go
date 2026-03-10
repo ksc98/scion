@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/agent"
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/hubsync"
@@ -53,6 +54,11 @@ var deleteCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Normalize agent names to slugs for consistent lookup
+		for i, a := range args {
+			args[i] = api.Slugify(a)
+		}
+
 		projectDir, _ := config.GetResolvedProjectDir(grovePath)
 		if preserveBranch && !util.IsGitRepoDir(projectDir) {
 			fmt.Println("Warning: --preserve-branch used outside a git repository; this flag has no effect.")
@@ -281,7 +287,7 @@ func deleteAgentLocal(agentName string) error {
 	util.Debugf("delete: container list completed in %v", time.Since(listStart))
 	containerFound := false
 	for _, a := range agents {
-		if a.Name == agentName || a.ID == agentName || strings.TrimPrefix(a.Name, "/") == agentName {
+		if strings.EqualFold(a.Name, agentName) || a.ID == agentName || strings.EqualFold(strings.TrimPrefix(a.Name, "/"), agentName) {
 			containerFound = true
 			break
 		}

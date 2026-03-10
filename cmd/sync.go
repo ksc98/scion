@@ -24,6 +24,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/agent/state"
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/ptone/scion-agent/pkg/transfer"
@@ -69,9 +70,9 @@ Examples:
 				return fmt.Errorf("invalid direction '%s', must be 'to' or 'from'", dirStr)
 			}
 			direction = runtime.SyncDirection(dirStr)
-			agentName = args[1]
+			agentName = api.Slugify(args[1])
 		} else {
-			agentName = args[0]
+			agentName = api.Slugify(args[0])
 		}
 
 		// Check if Hub should be used

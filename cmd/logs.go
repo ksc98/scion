@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/agent"
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
@@ -45,7 +46,7 @@ var logsCmd = &cobra.Command{
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: getAgentNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		agentName := args[0]
+		agentName := api.Slugify(args[0])
 
 		// Check if Hub is enabled
 		hubCtx, err := CheckHubAvailabilitySimple(grovePath)

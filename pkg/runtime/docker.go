@@ -167,9 +167,14 @@ func (r *DockerRuntime) List(ctx context.Context, labelFilter map[string]string)
 		}
 
 		if match {
+			// Prefer the scion.name label (slugified) over Docker container name
+			agentName := labels["scion.name"]
+			if agentName == "" {
+				agentName = d.Names
+			}
 			agents = append(agents, api.AgentInfo{
 				ContainerID:     d.ID,
-				Name:            d.Names,
+				Name:            agentName,
 				ContainerStatus: d.Status,
 				Phase:           "created", // Default phase, updated by AgentManager logic
 				Image:           d.Image,

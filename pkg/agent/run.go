@@ -38,7 +38,7 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 	agents, err := m.Runtime.List(ctx, nil)
 	if err == nil {
 		for _, a := range agents {
-			if a.ContainerID == opts.Name || a.Name == opts.Name || strings.TrimPrefix(a.Name, "/") == opts.Name {
+			if a.ContainerID == opts.Name || strings.EqualFold(a.Name, opts.Name) || strings.EqualFold(strings.TrimPrefix(a.Name, "/"), opts.Name) {
 				status := strings.ToLower(a.ContainerStatus)
 				isRunning := strings.HasPrefix(status, "up") || status == "running"
 				if isRunning {

@@ -472,7 +472,7 @@ func (s *Server) createAgentInGrove(
 	agent := &store.Agent{
 		ID:              api.NewUUID(),
 		Slug:            slug,
-		Name:            req.Name,
+		Name:            slug,
 		Template:        req.Template,
 		GroveID:         groveID,
 		RuntimeBrokerID: runtimeBrokerID,

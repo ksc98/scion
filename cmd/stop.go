@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/agent"
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/hubclient"
 	"github.com/ptone/scion-agent/pkg/hubsync"
@@ -68,7 +69,7 @@ var stopCmd = &cobra.Command{
 			return stopAllAgents()
 		}
 
-		agentName := args[0]
+		agentName := api.Slugify(args[0])
 
 		// Check if Hub should be used, excluding the target agent from sync requirements.
 		hubCtx, err := CheckHubAvailabilityForAgent(grovePath, agentName, false)

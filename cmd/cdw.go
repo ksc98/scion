@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/util"
 	"github.com/spf13/cobra"
@@ -35,7 +36,7 @@ Then checks for any git worktree checked out to the specified branch.`,
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: getAgentNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
+		name := api.Slugify(args[0])
 		var targetPath string
 
 		// 1. Check for Agent

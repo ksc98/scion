@@ -23,6 +23,7 @@ import (
 
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/agent/state"
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/ptone/scion-agent/pkg/wsclient"
@@ -38,7 +39,7 @@ If the agent was started with tmux support, this will attach to the tmux session
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: getAgentNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		agentName := args[0]
+		agentName := api.Slugify(args[0])
 
 		// Check if Hub is enabled
 		hubCtx, err := CheckHubAvailabilityForAgent(grovePath, agentName, false)

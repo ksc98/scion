@@ -44,7 +44,7 @@ form the task prompt, which will be written to prompt.md. If no task
 arguments are provided, an empty prompt.md is created for later editing.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		agentName := args[0]
+		agentName := api.Slugify(args[0])
 		task := strings.TrimSpace(strings.Join(args[1:], " "))
 
 		// Validate --harness-auth value

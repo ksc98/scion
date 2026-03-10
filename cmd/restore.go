@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +31,7 @@ var restoreCmd = &cobra.Command{
 	ValidArgsFunction: getAgentNames,
 	Args:              cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		agentName := args[0]
+		agentName := api.Slugify(args[0])
 
 		hubCtx, err := CheckHubAvailability(grovePath)
 		if err != nil {
