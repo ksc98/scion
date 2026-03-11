@@ -31,7 +31,6 @@ Scion requires a container runtime to manage agents. You can use either Docker o
 - Requires the [container](https://github.com/apple/container/releases) tool (an Apple tool for running OCI images in micro VMs).
 - Ensure the `container` command executes.
 - Start the system services `container system start`.
-- Although the container images refrenced in this project are public, the container tool seems to require auth, until this can be investigated, this will authorized the container tool to pull images from the GCP Artifact registry (requires gcloud) `gcloud auth print-access-token | container registry login --username oauth2accesstoken --password-stdin us-central1-docker.pkg.dev`
 
 ### 3. Git
 Scion uses `git worktree` to manage agent workspaces.

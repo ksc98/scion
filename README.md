@@ -2,20 +2,22 @@
 
 _sci·on /ˈsīən/ noun 1. a young shoot or twig of a plant, especially one cut for grafting or rooting._
 
-Scion is a container-based orchestration tool designed to manage concurrent LLM-based code agents across your local machine and remote clusters. It enables developers to run specialized sub-agents with isolated identities, credentials, and workspaces, allowing for parallel execution of tasks such as coding, auditing, and testing.
+Scion is an experimental multi-agent orchestration testbed designed to manage concurrent LLM-based agents running in containers across your local machine and remote clusters. It enables developers to run groups of specialized agents with isolated identities, credentials, and workspaces, allowing for a dynamic and evolving graph of parallel execution of tasks such as research, coding, auditing, and testing.
+
+Scion takes a "less is more" approach to allowing modern powerful models to determine the execution of orchestration patterns by leveraging the progressive skill approach of dynamically loading the usage help text of the `scion` cli tool to manage other agents. This provides a system to rapidly experiment with different orchestration patterns and approaches through natural language prompting.
 
 **NOTE** Currently this project is early and experimental. Most of the concepts are starting to settle in, but anything might break or change and the future is not set.
 
 ## Key Features
 
-- **Parallelism**: Run multiple agents concurrently as independent processes either locally or remote.
-- **Isolation**: Each agent runs in its own container with strict separation of credentials, configuration, and environment.
-- **Context Management**: Scion uses `git worktree` to provide each agent with a dedicated workspace, preventing merge conflicts and ensuring clean separation of concerns.
-- **Profiles**: Manage multiple execution environments (e.g., Local, Docker, Kubernetes) via named profiles.
+- **Parallelism**: Run multiple agents concurrently as full independent processes either locally or remote.
+- **Isolation**: Each agent runs in its own container with strict separation of credentials, configuration, and environment. Scion uses `git worktree` to provide each agent with a dedicated workspace, preventing merge conflicts and ensuring clean separation of concerns.
+- **Context Management**: Each agent has a dedicated context window, and optionally its own system instruction.
+- **Runtimes**: Manage multiple execution environments (e.g., Local, Docker, Kubernetes) via named profiles. Distributed across local workstion, remote VMs, and container clusters.
 - **Specialization**: Agents can be customized via [Templates](docs-site/src/content/docs/guides/templates.md) (e.g., "Security Auditor", "QA Tester") to perform specific roles.
-- **Interactivity**: Agents run in `tmux` sessions by default, allowing for "detached" background operation, enqueuing messages to running agents, and "attaching" for human-in-the-loop interaction.
-- **Multi-Runtime**: Supports Docker, Apple Virtualization Framework, and (Experimental) Kubernetes.
+- **Interactivity**: Agents run in `tmux` sessions by default, allowing for "detached" background operation, enqueuing messages to running agents, and "attaching" for human-in-the-loop interaction. Attach to running agents across automatically established network tunnels for secure remote control.
 - **Harness Agnostic**: Works with Gemini CLI, Claude Code, OpenCode, and Codex. Easily adaptable to any harness which can run in a container.
+- **Observability**: Supports normalized OTEL telemetry across harnesses for logging and metrics allowing easy aggregation across agent swarms.
 
 ## Documentation
 
@@ -90,20 +92,6 @@ Profiles allow you to switch runtimes and configurations easily (e.g. `scion --p
 
 Templates serve as blueprints and can be managed via the `templates` subcommand. See the [Templates Guide](docs-site/src/content/docs/guides/templates.md) for more details.
 
-### Database
-
-The project uses SQLite for storage. Due to the high memory requirements of the pure-Go SQLite driver (`modernc.org/sqlite`) during analysis, you can optionally exclude it during development.
-
-- By default, SQLite support is included.
-- If you encounter OOM issues during `go vet` or `go test`, you can skip SQLite-related code:
-  ```bash
-  go test -tags no_sqlite ./...
-  go vet -tags no_sqlite ./...
-  ```
-- Standard builds produce a functional binary with SQLite support:
-  ```bash
-  go build ./cmd/scion
-  ```
 ## Disclaimers
 
 This is not an officially supported Google product. This project is not eligible for the [Google Open Source Software Vulnerability Rewards Program](https://bughunters.google.com/open-source-security)
