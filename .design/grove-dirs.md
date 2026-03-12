@@ -316,43 +316,43 @@ Use Docker named volumes instead of bind mounts for shared dirs.
 - Not portable to non-Docker runtimes without adaptation
 - Bind mounts are more transparent and consistent with existing scion patterns
 
-## Open Questions
+## Resolved Design Decisions
 
-### 1. Auto-mount vs opt-in per agent
+The following questions were raised during review and have been resolved:
 
-Should shared dirs be auto-mounted to all agents in a grove, or should agents opt-in? Auto-mount is simpler and matches the "grove-scoped" model. Opt-in (via template/profile) adds flexibility but complexity. Current recommendation is auto-mount with an `exclude` override in per-agent config (see Per-Agent Access Control section).
+### Auto-mount vs opt-in per agent
 
-### 2. Size limits and quotas
+**Decision: Auto-mount.** Shared dirs are automatically mounted to all agents in a grove. This matches the "grove-scoped" model and keeps configuration simple. Per-agent overrides (including `exclude: true`) are available via agent config or profiles — see [Per-Agent Access Control](#per-agent-access-control).
 
-Should there be a size limit or quota for shared dirs? This would be useful for preventing runaway cache growth from build caches or artifact accumulation. Could be enforced via periodic `du` checks, filesystem quotas, or a configurable max size in the `SharedDir` definition. Likely a Phase 2 concern.
+### Naming
 
-### 3. Interaction with grove cloning / duplication
+**Decision: `shared_dirs`.** This emphasizes the sharing aspect between agents. Alternatives considered were `grove_dirs` (emphasizes scope) and `shared_volumes` (could be confused with the existing `volumes` config).
 
-How should shared dirs behave when a grove is cloned or duplicated? Options: copy shared dir contents (expensive for large caches), reference the same host dirs (surprising and potentially dangerous), or start with empty dirs (clean slate). The "clean slate" approach seems safest as a default.
+### Permissions and ownership
 
-### 4. GCS-backed shared dirs
+**Decision: No additional mechanism needed.** Shared directories are created by the same process that provisions agent home directories. The existing agent-side UID/GID mapping (via `SCION_HOST_UID`/`SCION_HOST_GID`) applies to shared dirs with no changes required.
 
-Should we support GCS (or other object storage) as a backing store for shared dirs? The existing `gcs` volume type in `VolumeMount` already supports GCS buckets via gcsfuse. This could be a natural extension — a `type: gcs` field on `SharedDir` with `bucket` and `prefix` fields. This would also partially address cross-broker sharing in the hosted architecture.
+### Gitignore management for in-workspace mounts
 
-### 5. Naming: `shared_dirs` vs `grove_dirs` vs `shared_volumes`
+**Decision: Documentation only.** When `in_workspace: true` is used, `.scion-volumes/` will appear as untracked content in the git worktree. Users should add `.scion-volumes/` to their `.gitignore` manually. Scion will not auto-modify `.gitignore` as this changes repo state which may be undesirable.
 
-`shared_dirs` emphasizes the sharing aspect between agents. `grove_dirs` emphasizes the scope. `shared_volumes` aligns with the underlying volume terminology but may be confused with the existing `volumes` config. Current preference is `shared_dirs`.
+### Interaction with grove cloning / duplication
 
-### 6. Permissions and ownership of shared dir contents
+**Decision: Clean slate.** When a grove is cloned or duplicated, shared dir *names* are copied to the new grove's configuration but the directories start empty. Contents are not copied (expensive for large caches) and host dirs are not shared across groves (surprising and potentially dangerous).
 
-Host UID/GID may differ from container UID/GID, which can cause permission issues when multiple agents (potentially with different container users) write to the same shared dir. The existing `SCION_HOST_UID`/`SCION_HOST_GID` pattern could be extended. Options include: a chown step on container startup, creating shared dirs with broad permissions (e.g., 0777), or using a consistent container user across agents in a grove.
+### Lifecycle of shared dirs relative to agents
 
-### 7. Gitignore management for in-workspace mounts
+**Decision: Grove-scoped lifecycle.** Shared dirs persist when all agents in a grove are deleted — they are grove-scoped, not agent-scoped. They can be individually removed via `scion shared-dir remove`. When a grove itself is deleted or pruned, all of its shared dirs are deleted as well.
 
-When `in_workspace: true` is used, `.scion-volumes/` will appear as untracked content in the git worktree. Should scion automatically add `.scion-volumes/` to `.gitignore` or to the worktree-specific git excludes? Auto-modifying `.gitignore` changes repo state which may be undesirable. Documenting that users should add it manually is simpler but easy to forget.
+### Scope of shared dirs in hosted architecture
 
-### 8. Snapshot and backup inclusion
+**Decision: Broker-scoped only (for now).** Shared dirs are scoped to a single broker. Cross-broker sharing (via GCS or other object storage) is a potential future improvement but is out of scope for the initial implementation.
 
-If snapshot or backup support is added to scion, should shared dirs be included? Shared dirs may contain large caches that would bloat snapshots. Recommend excluding by default with an opt-in flag.
+## Future Considerations
 
-### 9. Lifecycle of shared dirs relative to agents
-
-Should shared dirs persist when all agents in a grove are deleted? Current design says yes (they are grove-scoped, not agent-scoped), and they are only removed via explicit `scion shared-dir remove`. But this means orphaned shared dirs could accumulate. Should `scion shared-dir list` show usage/staleness info?
+- **Size limits and quotas**: Adding configurable size limits for shared dirs would help prevent runaway cache growth. This could be enforced via periodic `du` checks or a `max_size` field on `SharedDir`. Note that for local bind mounts on runtimes like Docker, native quota enforcement may not be available — enforcement would need to be application-level. Deferred to a future phase.
+- **GCS-backed shared dirs**: The existing `gcs` volume type in `VolumeMount` already supports GCS buckets via gcsfuse. A `type: gcs` field on `SharedDir` with `bucket` and `prefix` fields could be a natural extension, and would partially address cross-broker sharing.
+- **Snapshot and backup**: If snapshot/backup support is added to scion, shared dirs should be excluded by default (to avoid bloating snapshots with large caches), with an opt-in flag to include them.
 
 ## References
 
