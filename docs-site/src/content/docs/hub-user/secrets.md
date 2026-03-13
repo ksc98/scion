@@ -142,4 +142,4 @@ When an agent starts, the Runtime Broker requests a "Resolved Environment" from 
 ### Security
 Secrets are transmitted over TLS between the Hub and Runtime Brokers. They are only decrypted by the Hub during the dispatch process and sent over an encrypted channel to the Runtime Broker. The Broker then injects them directly into the container's memory space. Brokers never persist agent secrets to disk.
 
-For a detailed overview of the security architecture, see the [Security Architecture Reference](/reference/security).
+For a detailed overview of the security architecture, see the [Security Architecture Reference](../reference/security/).

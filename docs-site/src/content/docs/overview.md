@@ -11,14 +11,14 @@ Scion uses a flexible configuration system based on **Profiles**, **Runtimes**, 
 - **Global Settings**: `~/.scion/settings.yaml` (User-wide defaults)
 - **Grove Settings**: `.scion/settings.yaml` (Project overrides)
 
-For detailed information on configuring Scion, see the [Orchestrator Settings Reference](/reference/orchestrator-settings) and [Agent Configuration Reference](/reference/agent-config).
-To learn about the different agent tools supported by Scion, see [Supported Harnesses](/supported-harnesses).
+For detailed information on configuring Scion, see the [Orchestrator Settings Reference](./reference/orchestrator-settings/) and [Agent Configuration Reference](./reference/agent-config/).
+To learn about the different agent tools supported by Scion, see [Supported Harnesses](./supported-harnesses/).
 
 ## Getting Started
 
 Scion is designed to be easy to start with.
 
-1.  **Install**: Follow the [Installation Guide](/getting-started/install) to get Scion on your machine.
+1.  **Install**: Follow the [Installation Guide](./getting-started/install/) to get Scion on your machine.
 2.  **Initialize**: Run `scion init` in your project root to create a `.scion` directory.
 3.  **Start an Agent**: Use `scion start <agent-name> "<task>"` to launch an agent.
 4.  **Interact**: Use `scion attach <agent-name>` to interact with the agent's session, or `scion logs <agent-name>` to view its output.

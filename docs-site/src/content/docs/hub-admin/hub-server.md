@@ -66,7 +66,7 @@ server:
 When running with `--enable-web`, the Hub API is mounted on the web server's port (default 8080) and the standalone Hub listener is not started. The `hub.port` setting only applies when the Hub runs without `--enable-web`.
 :::
 
-See the [Server Configuration Reference](/reference/server-config) for all available fields.
+See the [Server Configuration Reference](../reference/server-config/) for all available fields.
 
 ## Authentication
 
@@ -74,7 +74,7 @@ The Hub supports multiple end-user authentication modes to balance ease of devel
 
 ### OAuth 2.0 (Production)
 Scion supports Google and GitHub as identity providers. Configuration requires creating OAuth Apps in the respective provider consoles.
-See the [Authentication Guide](/hub-admin/auth) for detailed setup instructions.
+See the [Authentication Guide](../hub-admin/auth/) for detailed setup instructions.
 
 ### Dev Auth (Local Development, workstation mode)
 For local testing, the Hub can auto-generate a development token:
@@ -136,7 +136,7 @@ The Hub is designed to be stateless and is highly compatible with Google Cloud R
 
 The Hub supports structured logging and can forward its internal logs and traces to an OpenTelemetry-compatible backend (like Google Cloud Logging/Trace).
 
-To enable log forwarding, set `SCION_OTEL_LOG_ENABLED=true` and `SCION_OTEL_ENDPOINT`. See the [Observability Guide](/hub-admin/observability) for full details on centralizing system logs and agent metrics.
+To enable log forwarding, set `SCION_OTEL_LOG_ENABLED=true` and `SCION_OTEL_ENDPOINT`. See the [Observability Guide](../hub-admin/observability/) for full details on centralizing system logs and agent metrics.
 
 ## Monitoring
 

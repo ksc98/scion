@@ -71,7 +71,7 @@ Scion supports restricting authentication to specific email domains via the `SCI
 
 ### 3.2 Permissions System (Future Plans)
 
-A comprehensive, hierarchical RBAC (Role-Based Access Control) system is currently in the design phase. For a detailed technical specification of the policy language and agent identity claims, see the [Policy & Permissions Reference](/reference/permissions-policy).
+A comprehensive, hierarchical RBAC (Role-Based Access Control) system is currently in the design phase. For a detailed technical specification of the policy language and agent identity claims, see the [Policy & Permissions Reference](../reference/permissions-policy/).
 
 - **Principal-Based**: Permissions are granted to **Users** and **Groups**.
 - **Hierarchical Groups**: Groups can contain other groups, allowing for complex team structures.
@@ -81,7 +81,7 @@ A comprehensive, hierarchical RBAC (Role-Based Access Control) system is current
 
 ## 4. Secret Management
 
-Scion provides a typed, scope-aware secret management system. Secret values are never stored in plaintext in the Hub database. For a user-facing guide, see [Secret Management](/hub-user/secrets).
+Scion provides a typed, scope-aware secret management system. Secret values are never stored in plaintext in the Hub database. For a user-facing guide, see [Secret Management](../hub-user/secrets/).
 
 ### 4.1 Secrets Backend Architecture
 

@@ -83,7 +83,7 @@ telemetry:
     service.name: "scion-agent"
 ```
 
-See the [Orchestrator Settings Reference](/reference/orchestrator-settings/#telemetry-configuration-telemetry) for the full field reference.
+See the [Orchestrator Settings Reference](../reference/orchestrator-settings/#telemetry-configuration-telemetry) for the full field reference.
 
 ### Environment Variable Overrides
 

@@ -34,7 +34,7 @@ Files without `schema_version` are treated as legacy format. Run `scion config m
 | `schema_version` | string | **Required**. Must be `"1"`. |
 | `active_profile` | string | The name of the profile to use by default (e.g., `local`, `remote`). |
 | `default_template` | string | The default template to use when creating agents (e.g., `gemini`, `claude`). |
-| `image_registry` | string | Registry prefix for all standard harness images. Rewrites the registry portion of `scion-*` images (e.g., `ghcr.io/myorg`). See [Building Custom Images](/advanced-local/custom-images/). |
+| `image_registry` | string | Registry prefix for all standard harness images. Rewrites the registry portion of `scion-*` images (e.g., `ghcr.io/myorg`). See [Building Custom Images](../advanced-local/custom-images/). |
 
 ## CLI Configuration (`cli`)
 
@@ -73,7 +73,7 @@ hub:
 :::caution[Moved Fields]
 Legacy fields like `token`, `apiKey`, and broker identity fields (`brokerId`) have been removed. 
 - **Dev Auth** is now handled via `server.auth.dev_token` (or `SCION_DEV_TOKEN`).
-- **Broker Identity** is now configured in the `server.broker` section (see [Server Configuration](/reference/server-config/)).
+- **Broker Identity** is now configured in the `server.broker` section (see [Server Configuration](../reference/server-config/)).
 :::
 
 ## Runtimes (`runtimes`)
@@ -193,7 +193,7 @@ profiles:
 
 Controls agent telemetry collection, forwarding, privacy filtering, and debug output. Telemetry settings can be defined at global or grove scope and are merged across the hierarchy (last write wins). They can also be overridden per-template or per-agent in `scion-agent.yaml`.
 
-See the [Metrics & OpenTelemetry guide](/hub-admin/metrics/) for operational details.
+See the [Metrics & OpenTelemetry guide](../hub-admin/metrics/) for operational details.
 
 ### Basic Example
 
@@ -276,7 +276,7 @@ telemetry:
 
 When running the `scion server` (Hub or Broker), configuration is read from the `server` section of `settings.yaml`.
 
-See the [Server Configuration Reference](/reference/server-config/) for details.
+See the [Server Configuration Reference](../reference/server-config/) for details.
 
 ## Environment Variable Overrides
 
@@ -297,4 +297,4 @@ Settings can be overridden using environment variables with the `SCION_` prefix.
 | `telemetry.hub.enabled` | `SCION_TELEMETRY_HUB_ENABLED` |
 | `telemetry.local.enabled` | `SCION_TELEMETRY_DEBUG` |
 
-See [Local Governance](/advanced-local/local-governance/) for more on variable substitution.
+See [Local Governance](../advanced-local/local-governance/) for more on variable substitution.

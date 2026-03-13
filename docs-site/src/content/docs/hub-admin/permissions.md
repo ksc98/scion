@@ -5,7 +5,7 @@ description: Designing access control for Scion groves and agents.
 
 Scion is implementing a robust, principal-based access control system to manage resources across distributed groves and teams. While currently in the design and early implementation phase, this document outlines the core concepts and policy model.
 
-For a detailed technical specification of the policy language and agent identity claims, see the [Policy & Permissions Reference](/reference/permissions-policy).
+For a detailed technical specification of the policy language and agent identity claims, see the [Policy & Permissions Reference](../reference/permissions-policy/).
 
 ## Core Concepts
 

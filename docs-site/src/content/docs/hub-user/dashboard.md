@@ -53,7 +53,7 @@ The dashboard supports several authentication methods:
 - **OAuth (Google/GitHub)**: For standard user access.
 - **Development Auto-login**: For local development.
 
-See the [Authentication Guide](/hub-admin/auth) for setup instructions.
+See the [Authentication Guide](../hub-admin/auth/) for setup instructions.
 
 ## API Proxying
 The Go server handles API proxying, token injection, and session management so the browser never handles raw API keys or long-lived tokens directly.

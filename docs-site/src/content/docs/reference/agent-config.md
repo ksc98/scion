@@ -113,7 +113,7 @@ hub:
 
 ### Required Secrets (`secrets`)
 
-Define secrets required by the agent. These follow the same schema as [Orchestrator Settings Secrets](/reference/orchestrator-settings/#required-secrets).
+Define secrets required by the agent. These follow the same schema as [Orchestrator Settings Secrets](../reference/orchestrator-settings/#required-secrets).
 
 ### Gemini Settings (`gemini`)
 
@@ -141,7 +141,7 @@ telemetry:
     service.name: "my-specialized-agent"
 ```
 
-See the [Orchestrator Settings Reference](/reference/orchestrator-settings/#telemetry-configuration-telemetry) for the full field reference and the [Metrics guide](/hub-admin/metrics/#configuration-hierarchy) for how telemetry settings merge across scopes.
+See the [Orchestrator Settings Reference](../reference/orchestrator-settings/#telemetry-configuration-telemetry) for the full field reference and the [Metrics guide](../hub-admin/metrics/#configuration-hierarchy) for how telemetry settings merge across scopes.
 
 ### Kubernetes Specifics (`kubernetes`)
 

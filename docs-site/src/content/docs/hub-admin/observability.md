@@ -105,7 +105,7 @@ telemetry:
         - "agent.user.prompt"
 ```
 
-See the [Orchestrator Settings Reference](/reference/orchestrator-settings/#telemetry-configuration-telemetry) for the full field reference, and [Metrics & OpenTelemetry](/guides/metrics/#configuration-hierarchy) for how settings merge across scopes.
+See the [Orchestrator Settings Reference](../reference/orchestrator-settings/#telemetry-configuration-telemetry) for the full field reference, and [Metrics & OpenTelemetry](../hub-admin/metrics/#configuration-hierarchy) for how settings merge across scopes.
 
 #### Via Hub Environment Variables
 
@@ -146,7 +146,7 @@ The `sciontool` utility ensures that `agent.log` is owned by the `scion` user du
 
 ## Telemetry Collection
 
-The telemetry pipeline in sciontool collects and forwards OpenTelemetry (OTLP) data from agents. See the [Metrics & OpenTelemetry guide](/guides/metrics) for deep configuration details.
+The telemetry pipeline in sciontool collects and forwards OpenTelemetry (OTLP) data from agents. See the [Metrics & OpenTelemetry guide](../hub-admin/metrics/) for deep configuration details.
 
 ### What's Collected
 
@@ -203,7 +203,7 @@ logName="projects/YOUR_PROJECT/logs/scion" OR logName="projects/YOUR_PROJECT/log
 jsonPayload.request_id = "YOUR_REQUEST_ID"
 ```
 
-See the [Local Development Logging guide](/development/logging/#http-request-logging) for the full field reference and file output format.
+See the [Local Development Logging guide](../development/logging/#http-request-logging) for the full field reference and file output format.
 
 ## Querying Logs by Subsystem
 
@@ -397,6 +397,6 @@ If you see logs but they aren't linked to traces in the Cloud Trace waterfall:
 
 ## Related Guides
 
-- [Metrics & OpenTelemetry](/guides/metrics) - Detailed telemetry configuration
-- [Hub Server](/guides/hub-server) - Hub integration for hosted mode
-- [Runtime Broker](/guides/runtime-broker) - Broker setup and configuration
+- [Metrics & OpenTelemetry](../hub-admin/metrics/) - Detailed telemetry configuration
+- [Hub Server](../hub-admin/hub-server/) - Hub integration for hosted mode
+- [Runtime Broker](../hub-user/runtime-broker/) - Broker setup and configuration

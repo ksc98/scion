@@ -49,7 +49,7 @@ The **Runtime** is the infrastructure layer responsible for executing the agent 
 A **Runtime Broker** is a compute node (e.g., a server, laptop, or K8s cluster) that registers with a **Scion Hub** to provide execution capacity.
 - It manages the local lifecycle of agents dispatched from the Hub.
 - It handles workspace synchronization, template hydration, and log streaming.
-- For more details, see the [Runtime Broker Guide](/hub-admin/runtime-broker/).
+- For more details, see the [Runtime Broker Guide](./hub-admin/runtime-broker/).
 
 ### Agent State Model
 
