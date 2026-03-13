@@ -49,6 +49,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: docs-site/package-lock.json
 
+      - name: Setup Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
       - name: Install D2
         run: curl -fsSL https://d2lang.com/install.sh | sh -s --
 

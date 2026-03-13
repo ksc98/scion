@@ -21,6 +21,8 @@ import d2 from 'astro-d2';
 
 // https://astro.build/config
 export default defineConfig({
+	site: 'https://google.github.io',
+	base: '/scion',
 	integrations: [
 		d2(),
 		starlight({
