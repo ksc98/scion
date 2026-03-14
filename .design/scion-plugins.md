@@ -14,11 +14,11 @@ We want a **plugin system** that allows scion to load additional message broker 
 
 [hashicorp/go-plugin](https://github.com/hashicorp/go-plugin) provides the foundation:
 
-- **Subprocess model**: Each plugin runs as a separate OS process, communicating via gRPC (or net/rpc)
+- **Subprocess model**: Each plugin runs as a separate OS process, communicating via go-plugin's RPC layer (net/rpc or gRPC)
 - **Crash isolation**: A plugin crash does not bring down the host
 - **Language agnostic**: gRPC plugins can be written in any language
 - **Versioning**: Protocol version negotiation between host and plugin
-- **Security**: Magic cookie handshake prevents accidental plugin execution; optional mTLS
+- **Security**: Magic cookie handshake prevents accidental plugin execution
 - **Health checking**: Built-in gRPC health service
 
 ### Key go-plugin Lifecycle
@@ -26,7 +26,7 @@ We want a **plugin system** that allows scion to load additional message broker 
 1. Host calls `plugin.NewClient()` with the path to a plugin binary
 2. Host calls `client.Client()` then `raw.Dispense("pluginName")` to get a typed interface
 3. The plugin subprocess starts and stays running for the lifetime of the `Client`
-4. Host calls methods on the dispensed interface; these become gRPC calls
+4. Host calls methods on the dispensed interface; these become RPC calls
 5. `client.Kill()` terminates the subprocess (graceful then force after 2s)
 
 ### Long-Running vs Per-Use
@@ -42,33 +42,48 @@ go-plugin is designed for **long-lived subprocesses**. The client starts the pro
 
 **Recommendation**: Use long-running plugin processes for both types. For harnesses, one plugin process serves all agents using that harness - the overhead of keeping it alive is negligible vs. respawning per agent operation.
 
+### RPC Layer: net/rpc vs gRPC
+
+go-plugin supports two RPC transports: Go's built-in `net/rpc` and gRPC. Since we have zero external broker implementations today, we have freedom to choose the simplest option.
+
+**Decision: Use go-plugin's `net/rpc` for Go plugins; support gRPC only for non-Go plugin authors.**
+
+Rationale:
+- `net/rpc` is simpler for Go-to-Go communication — no protobuf code generation, no `.proto` files to maintain
+- The `MessageBroker` interface is small (3 methods) and maps directly to Go RPC
+- If a plugin needs to talk to a gRPC-based backend (e.g., an external NATS or OpenClaw gateway), **that is internal to the plugin** — the plugin's external protocol does not dictate the host↔plugin protocol
+- gRPC support can be added later for polyglot plugins without breaking existing Go plugins
+
 ## Plugin Types
 
 ### Type 1: Message Broker (`broker`)
 
-Implements the `broker.MessageBroker` interface over gRPC:
+Implements the `broker.MessageBroker` interface across the plugin boundary:
 
-```
-service MessageBrokerPlugin {
-  rpc Publish(PublishRequest) returns (PublishResponse);
-  rpc Subscribe(SubscribeRequest) returns (stream Message);
-  rpc Unsubscribe(UnsubscribeRequest) returns (UnsubscribeResponse);
-  rpc Close(CloseRequest) returns (CloseResponse);
+```go
+// Plugin-side interface (same shape as broker.MessageBroker)
+type MessageBrokerPlugin interface {
+    Publish(ctx context.Context, topic string, msg *messages.StructuredMessage) error
+    Subscribe(pattern string) (SubscriptionID, error)
+    ReceiveMessages(subID SubscriptionID) ([]*ReceivedMessage, error)  // polling
+    Unsubscribe(subID SubscriptionID) error
+    Close() error
 }
 ```
 
 **Key considerations:**
-- Subscriptions are inherently streaming - gRPC server streaming maps well
-- The plugin maintains the external connection (NATS, Redis, etc.)
-- Configuration (connection URLs, auth) passed via gRPC `Configure()` call at startup
+- The in-process `Subscribe()` uses a callback-based `MessageHandler`, which cannot cross process boundaries directly. Over RPC, the plugin assigns a `SubscriptionID` and the host polls for messages via `ReceiveMessages()`, or we use a reverse connection (plugin calls back to host RPC server)
+- The plugin maintains the external connection (NATS, Redis, etc.) internally
+- Configuration (connection URLs, auth) passed via a `Configure(map[string]string)` call at startup
 - Plugin must handle reconnection to the backing service internally
+- The host-side adapter wraps the plugin RPC client to satisfy the existing `broker.MessageBroker` interface, bridging the callback model
 
 ### Type 2: Harness (`harness`)
 
-Implements the `api.Harness` interface over gRPC. The current interface has ~15 methods, most of which are simple getters or file operations.
+Implements the `api.Harness` interface over RPC. The current interface has ~15 methods, most of which are simple getters or file operations.
 
 **Key considerations:**
-- `GetHarnessEmbedsFS()` returns an `embed.FS` - cannot cross process boundaries. Plugin must instead expose a `GetEmbeddedFiles()` RPC that returns file contents.
+- `GetHarnessEmbedsFS()` returns an `embed.FS` — cannot cross process boundaries. Plugin harnesses should instead write their embedded files directly during `Provision()`, since the plugin has filesystem access to the same paths. This is the closest analog to how built-in harnesses work.
 - `Provision()` operates on the local filesystem (agent home dir). The plugin process must have filesystem access to the same paths.
 - Some methods are pure data (`Name()`, `GetEnv()`, `GetCommand()`) and could be batched into a single `GetMetadata()` call to reduce round-trips.
 - Optional interfaces (`AuthSettingsApplier`, `TelemetrySettingsApplier`) need capability advertisement.
@@ -123,6 +138,8 @@ For message brokers, the active broker is selected in server config:
 message_broker: nats   # selects the "nats" plugin (or "inprocess" for built-in)
 ```
 
+The design should accommodate future multi-broker configurations (see Open Questions), so internally the broker selection should resolve through a registry that can hold multiple loaded broker plugins, even if only one is "active" initially.
+
 For harnesses, plugin harnesses are available alongside built-in ones. The harness factory (`harness.New()`) checks plugins after built-in types:
 
 ```go
@@ -143,34 +160,13 @@ func New(harnessName string) api.Harness {
 
 ### Static Registration (Settings-based)
 
-Plugins are declared in settings and loaded at startup. This is sufficient for most use cases:
+Plugins are declared in settings and loaded at startup. This is sufficient for the initial implementation:
 
 - CLI reads settings, loads relevant plugins when needed
 - Hub/broker server loads all configured plugins at startup
 - No runtime registration needed
 
-### Dynamic Self-Registration (Hub API)
-
-For hub-managed deployments, plugins could self-register via a hub API endpoint. This is useful when:
-
-- Plugins are deployed as sidecars alongside the hub/broker
-- Plugin availability changes at runtime
-- Centralized plugin inventory is needed for multi-broker coordination
-
-**Proposed endpoint:**
-
-```
-POST /api/v1/plugins/register
-{
-  "type": "broker",
-  "name": "nats",
-  "version": "1.0.0",
-  "capabilities": ["publish", "subscribe", "durable-subscriptions"],
-  "endpoint": "unix:///var/run/scion-plugin-nats.sock"
-}
-```
-
-**Recommendation**: Start with static (settings-based) registration. Add dynamic registration as a future enhancement only if operational patterns require it. The static approach is simpler, debuggable, and covers the primary use cases.
+Dynamic self-registration via a hub API endpoint is deferred as a future enhancement. The static approach is simpler, debuggable, and covers the primary use cases.
 
 ## Local Mode Support
 
@@ -196,13 +192,11 @@ pkg/plugin/
   registry.go         # Type-safe plugin registry
   discovery.go        # Filesystem scanning and settings-based discovery
   config.go           # Plugin configuration types
-  broker_plugin.go    # gRPC client wrapper for MessageBroker plugins
-  harness_plugin.go   # gRPC client wrapper for Harness plugins
-  proto/
-    broker.proto      # Protobuf definitions for broker plugin interface
-    harness.proto     # Protobuf definitions for harness plugin interface
-    shared.proto      # Common types
+  broker_plugin.go    # RPC client/server wrapper for MessageBroker plugins
+  harness_plugin.go   # RPC client/server wrapper for Harness plugins
 ```
+
+Note: With `net/rpc`, no `.proto` files are needed. The RPC interface is defined in Go code using go-plugin's `plugin.Plugin` interface pattern. If gRPC support is added later for polyglot plugins, proto files would be added at that time.
 
 ### Plugin Manager
 
@@ -210,7 +204,7 @@ Central component that owns plugin lifecycle:
 
 ```go
 type Manager struct {
-    clients  map[string]*plugin.Client  // type:name -> client
+    clients  map[string]*plugin.Client  // "type:name" -> client
     mu       sync.RWMutex
 }
 
@@ -220,6 +214,10 @@ func (m *Manager) GetBroker(name string) (broker.MessageBroker, error)
 func (m *Manager) GetHarness(name string) (api.Harness, error)
 func (m *Manager) Shutdown()                            // Kill all plugins
 ```
+
+### Plugin Lifecycle Tied to Server Lifecycle
+
+Plugin processes are started when the hub/broker server starts and stopped when it stops. The plugin manager's `Shutdown()` is called as part of the server's graceful shutdown sequence. On `scion server restart` or `scion broker restart`, all plugin processes are killed and restarted with the new server instance.
 
 ### Integration Points
 
@@ -240,23 +238,29 @@ func (m *Manager) Shutdown()                            // Kill all plugins
 - Accept optional `*plugin.Manager` parameter
 - Fall through to plugin lookup before defaulting to `Generic`
 
-## gRPC Interface Design Considerations
+## RPC Interface Design Considerations
 
 ### Broker Plugin
 
-The `broker.MessageBroker` interface maps cleanly to gRPC with one exception: `Subscribe()` returns a callback-based handler. Over gRPC, this becomes a server-streaming RPC where the plugin streams messages back to the host.
+The `broker.MessageBroker` interface is small and maps well to RPC with one challenge: `Subscribe()` uses a callback-based `MessageHandler` that cannot cross process boundaries.
 
-**Host-side adapter:**
+**Approach: Host-side polling adapter**
+
+The plugin assigns an opaque subscription ID and buffers incoming messages. The host-side adapter runs a goroutine that polls the plugin for new messages and dispatches them to the local `MessageHandler`:
+
 ```go
 type brokerPluginClient struct {
-    client proto.MessageBrokerPluginClient
+    client *rpc.Client
 }
 
 func (b *brokerPluginClient) Subscribe(pattern string, handler MessageHandler) (Subscription, error) {
-    stream, err := b.client.Subscribe(ctx, &SubscribeRequest{Pattern: pattern})
-    // Goroutine reads from stream and calls handler
+    var subID string
+    err := b.client.Call("Plugin.Subscribe", pattern, &subID)
+    // Goroutine polls Plugin.ReceiveMessages(subID) and calls handler
 }
 ```
+
+Alternative: The host exposes a reverse RPC server that the plugin calls to deliver messages. This avoids polling overhead but adds complexity. Start with polling; optimize if latency becomes an issue.
 
 ### Harness Plugin
 
@@ -264,23 +268,37 @@ The harness interface has several methods that don't translate directly:
 
 | Method | Challenge | Solution |
 |---|---|---|
-| `GetHarnessEmbedsFS()` | Returns `embed.FS` | Replace with `GetEmbeddedFiles()` returning `map[string][]byte` |
-| `Provision()` | Writes to local filesystem | Plugin must access same filesystem; pass paths and let plugin write |
+| `GetHarnessEmbedsFS()` | Returns `embed.FS` | Plugin writes its own embedded files during `Provision()` directly to the agent home directory. `GetHarnessEmbedsFS()` returns nil or empty for plugin harnesses. |
+| `Provision()` | Writes to local filesystem | Plugin has filesystem access to the same paths; pass paths and let plugin write |
 | `InjectAgentInstructions()` | Writes to local filesystem | Same as Provision |
-| `ResolveAuth()` | Complex types | Serialize `AuthConfig`/`ResolvedAuth` as protobuf messages |
+| `ResolveAuth()` | Complex types | Serialize as JSON over RPC (Go's `encoding/gob` handles this natively for `net/rpc`) |
 
 **Capability advertisement**: Plugin responds to a `GetCapabilities()` call indicating which optional interfaces it supports (auth settings, telemetry settings).
 
+## Decisions
+
+These items from the original draft have been resolved based on review feedback:
+
+| Topic | Decision | Rationale |
+|---|---|---|
+| Host↔Plugin RPC | Use `net/rpc` for Go plugins | Simpler than gRPC; no proto files. Plugin handles external protocols internally. gRPC option deferred for polyglot support. |
+| Harness embed files | Plugin writes files during `Provision()` (option c) | Closest to built-in behavior. Plugin has filesystem access, so it can write directly. |
+| Plugin config schema | Opaque `map[string]string` validated by plugin (option b) | Keep it simple for v1. Plugin returns clear errors for invalid config. |
+| Security model | Simple trust — user-installed binaries, magic cookie handshake | No signature verification or mTLS for now. Same trust model as any user-installed binary. |
+| Dynamic registration | Deferred | Static settings-based registration covers primary use cases. |
+| Hot reload | Deferred | Plugin lifecycle tied to server start/stop/restart. No watch-and-reload. |
+| Plugin distribution | Deferred | Manual install to `~/.scion/plugins/<type>/`. Future `scion plugin install` command possible. |
+
 ## Open Questions
 
-### 1. Harness Embed Files Over Plugin Boundary
+### 1. Subscription Delivery: Polling vs Reverse RPC
 
-Built-in harnesses use `//go:embed` to package default config files. For plugin harnesses, these files must be transmitted over gRPC. Options:
-- **a)** Plugin transmits files on demand via `GetEmbeddedFiles()` RPC
-- **b)** Plugin ships a companion tarball that scion extracts on install
-- **c)** Plugin writes its own embeds during `Provision()` directly
+The host-side broker adapter needs to bridge the plugin's RPC boundary with the local callback-based `MessageHandler`. Two approaches:
 
-Recommendation: **(a)** is simplest and keeps the plugin self-contained.
+- **Polling**: Host goroutine periodically calls `ReceiveMessages()` on the plugin. Simple but introduces latency proportional to poll interval.
+- **Reverse RPC**: Plugin calls back to a host-provided RPC endpoint to push messages. Lower latency but more complex setup (host must expose an RPC server to the plugin).
+
+**Recommendation**: Start with polling at a reasonable interval (e.g., 50-100ms). Measure latency in practice and switch to reverse RPC if needed.
 
 ### 2. Plugin Versioning and Compatibility
 
@@ -289,68 +307,50 @@ go-plugin supports protocol version negotiation. We need to define:
 - Should scion refuse to load plugins with incompatible versions, or degrade gracefully?
 - How do we communicate minimum scion version requirements from the plugin side?
 
-### 3. Plugin Configuration Schema
-
-How does the host know what config a plugin needs?
-- **a)** Plugin exposes a `GetConfigSchema()` RPC returning a JSON Schema
-- **b)** Config is opaque `map[string]string` passed to `Configure()` - plugin validates
-- **c)** Plugin documentation describes required config
-
-Recommendation: **(b)** for v1 - keep it simple. Plugin validates its own config and returns clear errors.
-
-### 4. Security Model
-
-- Plugin binaries are user-installed in `~/.scion/plugins/` - same trust as any local binary
-- go-plugin's magic cookie prevents accidental execution
-- Should we support signature verification for plugin binaries? (future consideration)
-- mTLS between host and plugin? (go-plugin supports this but adds complexity)
-
-### 5. Multiple Broker Plugins Simultaneously?
+### 3. Multiple Broker Plugins Simultaneously
 
 Can a hub run multiple message broker plugins (e.g., NATS for inter-agent messaging, Redis for notifications)?
+
 - Current `MessageBroker` interface assumes one active broker
-- Could support named broker instances: `plugins.broker.nats` and `plugins.broker.redis` with different roles
-- Defer this to future design if the need arises
+- Could support named broker instances with different roles
+- The plugin manager already holds a registry keyed by `type:name`, so multiple broker plugins can be loaded simultaneously — the question is how to route messages to the right one
 
-### 6. Plugin Distribution
+This is deferred but the current design (registry-based, keyed by name) intentionally accommodates it. A future "multi-broker gateway" pattern could wrap multiple broker plugins behind a routing layer.
 
-How do users obtain plugins?
-- Manual download to `~/.scion/plugins/<type>/`
-- `scion plugin install <name>` fetching from a registry or GitHub releases
-- Package managers (brew, apt, etc.)
+### 4. net/rpc Streaming Limitations
 
-Distribution is out of scope for v1 but the filesystem layout should accommodate future tooling.
+Go's `net/rpc` does not natively support streaming. For broker subscriptions, this means we rely on polling or reverse RPC rather than server-side streaming. If we find that the polling/reverse-RPC approach is insufficient, we may need to:
+- Switch broker plugins to gRPC (which supports streaming natively)
+- Use a custom transport within go-plugin
 
-### 7. Hot Reload
+This is worth monitoring as the first broker plugin (NATS) is implemented.
 
-Can plugins be reloaded without restarting the hub/broker server?
-- go-plugin supports reattachment to existing plugin processes
-- The plugin manager could watch for binary changes and restart plugins
-- Adds complexity; defer to future versions
+### 5. Harness `GetHarnessEmbedsFS()` Contract Change
 
-### 8. Logging and Observability
+If plugin harnesses write their files during `Provision()` instead of returning an `embed.FS`, the harness interface contract needs adjustment. Options:
+- Make `GetHarnessEmbedsFS()` optional (return nil is acceptable)
+- Split the interface: built-in harnesses embed, plugin harnesses provision
+- Refactor built-in harnesses to also write during `Provision()` for consistency
 
-go-plugin captures plugin stdout/stderr and routes it through the host's logger. We should:
-- Use structured (JSON) logging from plugins for clean integration
-- Include plugin name/type in log context
-- Expose plugin health status through the hub's existing health endpoint
+**Recommendation**: Make `GetHarnessEmbedsFS()` return nil for plugin harnesses. The `Provision()` flow should handle the nil case gracefully, since plugin harnesses will have already written their files.
 
 ## Phased Implementation Plan
 
 ### Phase 1: Plugin Infrastructure
 - `pkg/plugin/` package with Manager, Registry, Discovery
-- Protobuf definitions for broker plugin interface
+- `net/rpc` interface definitions for broker plugin
 - Settings schema additions for `plugins` section
-- Integration with hub server for broker plugins
+- Integration with hub/broker server lifecycle (start/stop/restart)
 
 ### Phase 2: Message Broker Plugins
 - NATS broker plugin (first external implementation)
+- Host-side adapter bridging RPC to `MessageHandler` callbacks
 - Test the full lifecycle: discovery, loading, configuration, operation, shutdown
-- Validate streaming subscription model over gRPC
+- Evaluate polling vs reverse RPC based on real latency measurements
 
 ### Phase 3: Harness Plugins
-- Protobuf definitions for harness plugin interface
-- Adapter for embed.FS replacement
+- `net/rpc` interface definitions for harness plugin
+- Refactor `GetHarnessEmbedsFS()` to be nil-safe for plugin harnesses
 - Integration with harness factory and local mode
 - Example harness plugin
 
@@ -358,6 +358,7 @@ go-plugin captures plugin stdout/stderr and routes it through the host's logger.
 - `scion plugin list` command showing discovered/loaded plugins
 - Health status reporting
 - Documentation and plugin authoring guide
+- Optional: gRPC plugin support for non-Go plugin authors
 
 ## Related Design Documents
 
