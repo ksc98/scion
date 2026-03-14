@@ -144,12 +144,26 @@ func runInit(args []string) int {
 		}()
 	}
 
+	// Resolve the scion user's home directory early. Init runs as root
+	// (HOME=/root), but agent-info.json and other agent state files live
+	// in the scion user's home directory. This must happen before the
+	// StatusHandler is created so it writes to the correct path.
+	agentHome := os.Getenv("HOME")
+	if targetUID != 0 {
+		if scionUser, err := user.LookupId(strconv.Itoa(targetUID)); err == nil {
+			agentHome = scionUser.HomeDir
+		} else {
+			log.Debug("Could not look up user for UID %d: %v", targetUID, err)
+		}
+	}
+
 	// Initialize lifecycle hooks manager
 	lifecycleManager := hooks.NewLifecycleManager()
 
 	// Register status and logging handlers for lifecycle events
 	// These handlers update agent-info.json and agent.log on container lifecycle events
 	statusHandler := handlers.NewStatusHandler()
+	statusHandler.StatusPath = filepath.Join(agentHome, "agent-info.json")
 	loggingHandler := handlers.NewLoggingHandler()
 
 	for _, eventName := range []string{hooks.EventPreStart, hooks.EventPostStart, hooks.EventPreStop, hooks.EventSessionEnd} {
@@ -228,17 +242,6 @@ func runInit(args []string) int {
 
 	// Read and start sidecar services
 	var svcManager *services.Manager
-	// Resolve the scion user's home directory for service config.
-	// We cannot use os.Getenv("HOME") because init runs as root (HOME=/root),
-	// but the services file is written to the scion user's home during provisioning.
-	agentHome := os.Getenv("HOME")
-	if targetUID != 0 {
-		if scionUser, err := user.LookupId(strconv.Itoa(targetUID)); err == nil {
-			agentHome = scionUser.HomeDir
-		} else {
-			log.Debug("Could not look up user for UID %d: %v", targetUID, err)
-		}
-	}
 	// Workaround: Claude Code creates a dangling symlink at
 	// ~/.claude/debug/latest that causes apple-container removal to hang.
 	// Pre-create the directory as read-only (0555) so no symlinks can be
@@ -811,8 +814,11 @@ func gitCloneWorkspace(uid, gid int) error {
 	}
 	agentName := os.Getenv("SCION_AGENT_NAME")
 
-	// Helper to set credentials on a command so git runs as the scion user.
-	setCredential := func(cmd *exec.Cmd) {
+	// Helper to configure a git command: run as the scion user and disable
+	// interactive credential prompts so git fails immediately instead of
+	// hanging when authentication is required but no token is available.
+	setupGitCmd := func(cmd *exec.Cmd) {
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 		if uid > 0 {
 			cmd.SysProcAttr = &syscall.SysProcAttr{
 				Credential: &syscall.Credential{
@@ -853,7 +859,7 @@ func gitCloneWorkspace(uid, gid int) error {
 		log.Info("Attempting to clone repository %s (branch: %s, depth: %s)", normalizedURL, agentBranch, depthStr)
 		cloneArgs := []string{"clone", "--depth", depthStr, "--branch", agentBranch, authURL, workspacePath}
 		tryCmd := exec.Command("git", cloneArgs...)
-		setCredential(tryCmd)
+		setupGitCmd(tryCmd)
 		var tryStderr bytes.Buffer
 		tryCmd.Stderr = &tryStderr
 		if err := tryCmd.Run(); err == nil {
@@ -874,7 +880,7 @@ func gitCloneWorkspace(uid, gid int) error {
 		log.Info("Cloning repository %s (branch: %s, depth: %s)", normalizedURL, branch, depthStr)
 		cloneArgs := []string{"clone", "--depth", depthStr, "--branch", branch, authURL, workspacePath}
 		cmd := exec.Command("git", cloneArgs...)
-		setCredential(cmd)
+		setupGitCmd(cmd)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 
@@ -894,7 +900,7 @@ func gitCloneWorkspace(uid, gid int) error {
 	}
 	for _, cfg := range gitConfigs {
 		cfgCmd := exec.Command("git", "-C", workspacePath, "config", cfg.key, cfg.value)
-		setCredential(cfgCmd)
+		setupGitCmd(cfgCmd)
 		if err := cfgCmd.Run(); err != nil {
 			return fmt.Errorf("failed to set git config %s: %w", cfg.key, err)
 		}
@@ -903,7 +909,7 @@ func gitCloneWorkspace(uid, gid int) error {
 	// Configure credential helper for subsequent push operations
 	credentialHelper := `!f() { echo "password=${GITHUB_TOKEN}"; echo "username=oauth2"; }; f`
 	credCmd := exec.Command("git", "-C", workspacePath, "config", "credential.helper", credentialHelper)
-	setCredential(credCmd)
+	setupGitCmd(credCmd)
 	if err := credCmd.Run(); err != nil {
 		return fmt.Errorf("failed to configure git credential helper: %w", err)
 	}
@@ -922,7 +928,7 @@ func gitCloneWorkspace(uid, gid int) error {
 
 		// 1. Try local checkout (works if branch matches the cloned branch)
 		checkoutCmd := exec.Command("git", "-C", workspacePath, "checkout", branchName)
-		setCredential(checkoutCmd)
+		setupGitCmd(checkoutCmd)
 		if err := checkoutCmd.Run(); err == nil {
 			checked = true
 		}
@@ -930,11 +936,11 @@ func gitCloneWorkspace(uid, gid int) error {
 		// 2. Try fetching the branch from origin (shallow clone may not have it)
 		if !checked {
 			fetchCmd := exec.Command("git", "-C", workspacePath, "fetch", "origin", branchName)
-			setCredential(fetchCmd)
+			setupGitCmd(fetchCmd)
 			if err := fetchCmd.Run(); err == nil {
 				// Branch exists on remote — check it out tracking origin
 				trackCmd := exec.Command("git", "-C", workspacePath, "checkout", "-b", branchName, "origin/"+branchName)
-				setCredential(trackCmd)
+				setupGitCmd(trackCmd)
 				if err := trackCmd.Run(); err == nil {
 					checked = true
 				}
@@ -944,7 +950,7 @@ func gitCloneWorkspace(uid, gid int) error {
 		// 3. Branch doesn't exist anywhere — create it
 		if !checked {
 			createCmd := exec.Command("git", "-C", workspacePath, "checkout", "-b", branchName)
-			setCredential(createCmd)
+			setupGitCmd(createCmd)
 			if err := createCmd.Run(); err != nil {
 				return fmt.Errorf("failed to create branch %s: %w", branchName, err)
 			}
