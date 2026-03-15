@@ -1357,6 +1357,92 @@ func TestCascadeDelete(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
+func TestCascadeDeleteEnvVarsSecrets(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	groveID := api.NewUUID()
+	require.NoError(t, s.CreateGrove(ctx, &store.Grove{
+		ID: groveID, Name: "Cascade EV/S", Slug: "cascade-ev-s",
+		Visibility: store.VisibilityPrivate,
+	}))
+
+	// Create grove-scoped env vars
+	require.NoError(t, s.CreateEnvVar(ctx, &store.EnvVar{
+		ID: api.NewUUID(), Key: "A", Value: "1",
+		Scope: store.ScopeGrove, ScopeID: groveID,
+	}))
+	require.NoError(t, s.CreateEnvVar(ctx, &store.EnvVar{
+		ID: api.NewUUID(), Key: "B", Value: "2",
+		Scope: store.ScopeGrove, ScopeID: groveID,
+	}))
+
+	// Create grove-scoped secrets
+	require.NoError(t, s.CreateSecret(ctx, &store.Secret{
+		ID: api.NewUUID(), Key: "S1", EncryptedValue: "enc1",
+		Scope: store.ScopeGrove, ScopeID: groveID, Version: 1,
+	}))
+
+	// Create a hub-scoped env var (should not be deleted)
+	require.NoError(t, s.CreateEnvVar(ctx, &store.EnvVar{
+		ID: api.NewUUID(), Key: "HUB_VAR", Value: "hub",
+		Scope: store.ScopeHub, ScopeID: store.ScopeIDHub,
+	}))
+
+	// Delete by scope
+	n, err := s.DeleteEnvVarsByScope(ctx, store.ScopeGrove, groveID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	n, err = s.DeleteSecretsByScope(ctx, store.ScopeGrove, groveID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	// Verify grove-scoped are gone
+	envVars, err := s.ListEnvVars(ctx, store.EnvVarFilter{Scope: store.ScopeGrove, ScopeID: groveID})
+	require.NoError(t, err)
+	assert.Empty(t, envVars)
+
+	secrets, err := s.ListSecrets(ctx, store.SecretFilter{Scope: store.ScopeGrove, ScopeID: groveID})
+	require.NoError(t, err)
+	assert.Empty(t, secrets)
+
+	// Verify hub-scoped env var still exists
+	hubVars, err := s.ListEnvVars(ctx, store.EnvVarFilter{Scope: store.ScopeHub, ScopeID: store.ScopeIDHub})
+	require.NoError(t, err)
+	assert.Len(t, hubVars, 1)
+
+	// Delete with no matches returns 0, no error
+	n, err = s.DeleteEnvVarsByScope(ctx, store.ScopeGrove, "nonexistent")
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+}
+
+func TestDeleteHarnessConfigsByScope(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	groveID := api.NewUUID()
+	require.NoError(t, s.CreateGrove(ctx, &store.Grove{
+		ID: groveID, Name: "HC Cascade", Slug: "hc-cascade",
+		Visibility: store.VisibilityPrivate,
+	}))
+
+	require.NoError(t, s.CreateHarnessConfig(ctx, &store.HarnessConfig{
+		ID: api.NewUUID(), Name: "hc1", Slug: "hc1",
+		Harness: "claude", Scope: store.ScopeGrove, ScopeID: groveID,
+		Status: store.HarnessConfigStatusActive, Visibility: store.VisibilityPrivate,
+	}))
+
+	n, err := s.DeleteHarnessConfigsByScope(ctx, store.ScopeGrove, groveID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	result, err := s.ListHarnessConfigs(ctx, store.HarnessConfigFilter{Scope: store.ScopeGrove, ScopeID: groveID}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, result.Items)
+}
+
 // ============================================================================
 // MarkStaleAgentsOffline Tests
 // ============================================================================

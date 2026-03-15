@@ -1012,6 +1012,78 @@ func TestRegisterGrove_GitBacked_DeterministicID(t *testing.T) {
 	assert.True(t, resp.Created)
 }
 
+// TestDeleteGrove_CascadesEnvVarsSecretsHarnessConfigs verifies that deleting a
+// grove removes all grove-scoped env vars, secrets, and harness configs.
+func TestDeleteGrove_CascadesEnvVarsSecretsHarnessConfigs(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	grove := createTestGitGrove(t, srv, "Cascade Resources Test", "github.com/test/cascade-resources")
+
+	// Create grove-scoped env vars
+	require.NoError(t, s.CreateEnvVar(ctx, &store.EnvVar{
+		ID: api.NewUUID(), Key: "LOG_LEVEL", Value: "debug",
+		Scope: store.ScopeGrove, ScopeID: grove.ID,
+	}))
+	require.NoError(t, s.CreateEnvVar(ctx, &store.EnvVar{
+		ID: api.NewUUID(), Key: "REGION", Value: "us-east-1",
+		Scope: store.ScopeGrove, ScopeID: grove.ID,
+	}))
+
+	// Create grove-scoped secrets
+	require.NoError(t, s.CreateSecret(ctx, &store.Secret{
+		ID: api.NewUUID(), Key: "API_KEY", EncryptedValue: "enc-val-1",
+		Scope: store.ScopeGrove, ScopeID: grove.ID, Version: 1,
+	}))
+
+	// Create grove-scoped harness config
+	require.NoError(t, s.CreateHarnessConfig(ctx, &store.HarnessConfig{
+		ID: api.NewUUID(), Name: "grove-hc", Slug: "grove-hc",
+		Harness: "claude", Scope: store.ScopeGrove, ScopeID: grove.ID,
+		Status: store.HarnessConfigStatusActive, Visibility: store.VisibilityPrivate,
+	}))
+
+	// Also create a hub-scoped env var that should NOT be deleted
+	hubEnvVarID := api.NewUUID()
+	require.NoError(t, s.CreateEnvVar(ctx, &store.EnvVar{
+		ID: hubEnvVarID, Key: "GLOBAL_VAR", Value: "keep-me",
+		Scope: store.ScopeHub, ScopeID: store.ScopeIDHub,
+	}))
+
+	// Verify resources exist before deletion
+	envVars, err := s.ListEnvVars(ctx, store.EnvVarFilter{Scope: store.ScopeGrove, ScopeID: grove.ID})
+	require.NoError(t, err)
+	assert.Len(t, envVars, 2)
+
+	secrets, err := s.ListSecrets(ctx, store.SecretFilter{Scope: store.ScopeGrove, ScopeID: grove.ID})
+	require.NoError(t, err)
+	assert.Len(t, secrets, 1)
+
+	// Delete grove via API
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/groves/"+grove.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify grove-scoped env vars were deleted
+	envVars, err = s.ListEnvVars(ctx, store.EnvVarFilter{Scope: store.ScopeGrove, ScopeID: grove.ID})
+	require.NoError(t, err)
+	assert.Empty(t, envVars, "grove env vars should be cascade deleted")
+
+	// Verify grove-scoped secrets were deleted
+	secrets, err = s.ListSecrets(ctx, store.SecretFilter{Scope: store.ScopeGrove, ScopeID: grove.ID})
+	require.NoError(t, err)
+	assert.Empty(t, secrets, "grove secrets should be cascade deleted")
+
+	// Verify grove-scoped harness configs were deleted
+	hcResult, err := s.ListHarnessConfigs(ctx, store.HarnessConfigFilter{Scope: store.ScopeGrove, ScopeID: grove.ID}, store.ListOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, hcResult.Items, "grove harness configs should be cascade deleted")
+
+	// Verify hub-scoped env var was NOT deleted
+	hubVars, err := s.ListEnvVars(ctx, store.EnvVarFilter{Scope: store.ScopeHub, ScopeID: store.ScopeIDHub})
+	require.NoError(t, err)
+	assert.Len(t, hubVars, 1, "hub-scoped env var should not be affected")
+}
+
 // TestGroveSyncTemplates_GroveNotFound verifies 404 for non-existent grove.
 func TestGroveSyncTemplates_GroveNotFound(t *testing.T) {
 	srv, _ := testServer(t)

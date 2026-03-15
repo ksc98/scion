@@ -3371,6 +3371,28 @@ func (s *Server) deleteGrove(w http.ResponseWriter, r *http.Request, id string) 
 		}
 	}
 
+	// Clean up grove-scoped env vars (best-effort).
+	// These use scope/scope_id without FK cascade.
+	if n, err := s.store.DeleteEnvVarsByScope(ctx, store.ScopeGrove, id); err != nil {
+		slog.Warn("failed to delete grove env vars", "grove", id, "error", err)
+	} else if n > 0 {
+		slog.Info("deleted grove env vars", "grove", id, "count", n)
+	}
+
+	// Clean up grove-scoped secrets (best-effort).
+	if n, err := s.store.DeleteSecretsByScope(ctx, store.ScopeGrove, id); err != nil {
+		slog.Warn("failed to delete grove secrets", "grove", id, "error", err)
+	} else if n > 0 {
+		slog.Info("deleted grove secrets", "grove", id, "count", n)
+	}
+
+	// Clean up grove-scoped harness configs (best-effort).
+	if n, err := s.store.DeleteHarnessConfigsByScope(ctx, store.ScopeGrove, id); err != nil {
+		slog.Warn("failed to delete grove harness configs", "grove", id, "error", err)
+	} else if n > 0 {
+		slog.Info("deleted grove harness configs", "grove", id, "count", n)
+	}
+
 	// For hub-native groves, notify provider brokers to clean up their
 	// local grove directories. This must run before DeleteGrove because
 	// the cascade deletes the grove_providers we need to enumerate.

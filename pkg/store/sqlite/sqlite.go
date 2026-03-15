@@ -2433,6 +2433,18 @@ func (s *SQLiteStore) DeleteHarnessConfig(ctx context.Context, id string) error 
 	return nil
 }
 
+func (s *SQLiteStore) DeleteHarnessConfigsByScope(ctx context.Context, scope, scopeID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM harness_configs WHERE scope = ? AND scope_id = ?", scope, scopeID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 func (s *SQLiteStore) ListHarnessConfigs(ctx context.Context, filter store.HarnessConfigFilter, opts store.ListOptions) (*store.ListResult[store.HarnessConfig], error) {
 	var conditions []string
 	var args []interface{}
@@ -3044,6 +3056,18 @@ func (s *SQLiteStore) DeleteEnvVar(ctx context.Context, key, scope, scopeID stri
 	return nil
 }
 
+func (s *SQLiteStore) DeleteEnvVarsByScope(ctx context.Context, scope, scopeID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM env_vars WHERE scope = ? AND scope_id = ?", scope, scopeID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 func (s *SQLiteStore) ListEnvVars(ctx context.Context, filter store.EnvVarFilter) ([]store.EnvVar, error) {
 	var conditions []string
 	var args []interface{}
@@ -3245,6 +3269,18 @@ func (s *SQLiteStore) DeleteSecret(ctx context.Context, key, scope, scopeID stri
 		return store.ErrNotFound
 	}
 	return nil
+}
+
+func (s *SQLiteStore) DeleteSecretsByScope(ctx context.Context, scope, scopeID string) (int, error) {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM secrets WHERE scope = ? AND scope_id = ?", scope, scopeID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 func (s *SQLiteStore) ListSecrets(ctx context.Context, filter store.SecretFilter) ([]store.Secret, error) {

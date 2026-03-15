@@ -303,6 +303,10 @@ type HarnessConfigStore interface {
 	// Returns ErrNotFound if the harness config doesn't exist.
 	DeleteHarnessConfig(ctx context.Context, id string) error
 
+	// DeleteHarnessConfigsByScope removes all harness configs for a given scope.
+	// Returns the number of deleted records. No error if zero rows affected.
+	DeleteHarnessConfigsByScope(ctx context.Context, scope, scopeID string) (int, error)
+
 	// ListHarnessConfigs returns harness configs matching the filter criteria.
 	ListHarnessConfigs(ctx context.Context, filter HarnessConfigFilter, opts ListOptions) (*ListResult[HarnessConfig], error)
 }
@@ -396,6 +400,10 @@ type EnvVarStore interface {
 	// Returns ErrNotFound if the env var doesn't exist.
 	DeleteEnvVar(ctx context.Context, key, scope, scopeID string) error
 
+	// DeleteEnvVarsByScope removes all environment variables for a given scope.
+	// Returns the number of deleted records. No error if zero rows affected.
+	DeleteEnvVarsByScope(ctx context.Context, scope, scopeID string) (int, error)
+
 	// ListEnvVars returns environment variables matching the filter criteria.
 	ListEnvVars(ctx context.Context, filter EnvVarFilter) ([]EnvVar, error)
 }
@@ -430,6 +438,10 @@ type SecretStore interface {
 	// DeleteSecret removes a secret.
 	// Returns ErrNotFound if the secret doesn't exist.
 	DeleteSecret(ctx context.Context, key, scope, scopeID string) error
+
+	// DeleteSecretsByScope removes all secrets for a given scope.
+	// Returns the number of deleted records. No error if zero rows affected.
+	DeleteSecretsByScope(ctx context.Context, scope, scopeID string) (int, error)
 
 	// ListSecrets returns secret metadata matching the filter criteria.
 	// Note: EncryptedValue is NOT populated in the returned secrets.
