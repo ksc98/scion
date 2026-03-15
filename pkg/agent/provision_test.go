@@ -939,3 +939,120 @@ func TestProvisionAgent_SkillsDirOverlay(t *testing.T) {
 		t.Errorf("expected template skill at %s, got error: %v", tplSkillPath, err)
 	}
 }
+
+// TestProvisionAgentGitClone_ClearsStaleWorktreeWorkspace verifies that when
+// git clone mode is active, a workspace directory containing a stale worktree
+// (.git file) from a previous local-mode run is cleared so sciontool can
+// perform a fresh clone.
+func TestProvisionAgentGitClone_ClearsStaleWorktreeWorkspace(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	globalScionDir := filepath.Join(tmpDir, ".scion")
+	os.MkdirAll(filepath.Join(globalScionDir, "templates"), 0755)
+	seedTestHarnessConfig(t, globalScionDir, "gemini", "gemini")
+	tplDir := filepath.Join(globalScionDir, "templates", "gemini")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(`{"default_harness_config":"gemini"}`), 0644)
+
+	projectDir := filepath.Join(tmpDir, "project")
+	projectScionDir := filepath.Join(projectDir, ".scion")
+	os.MkdirAll(projectScionDir, 0755)
+
+	// Pre-populate the workspace with stale worktree content: a .git FILE
+	// (not directory) plus some code files — simulating a previous local run.
+	agentsDir := filepath.Join(projectDir, ".scion", "agents")
+	staleWorkspace := filepath.Join(agentsDir, "clone-agent", "workspace")
+	os.MkdirAll(staleWorkspace, 0755)
+	os.WriteFile(filepath.Join(staleWorkspace, ".git"), []byte("gitdir: ../../../.git/worktrees/clone-agent\n"), 0644)
+	os.WriteFile(filepath.Join(staleWorkspace, "main.go"), []byte("package main\n"), 0644)
+
+	// Provision in git clone mode.
+	gitClone := &api.GitCloneConfig{
+		URL:    "https://github.com/example/repo.git",
+		Branch: "main",
+		Depth:  1,
+	}
+	ctx := api.ContextWithGitClone(context.Background(), gitClone)
+
+	_, wsPath, _, err := ProvisionAgent(ctx, "clone-agent", "gemini", "", "", projectScionDir, "", "", "", "")
+	if err != nil {
+		t.Fatalf("ProvisionAgent failed: %v", err)
+	}
+
+	// The workspace should now exist as an empty directory (stale content removed).
+	if wsPath == "" {
+		t.Fatal("expected non-empty workspace path for git clone mode")
+	}
+	entries, err := os.ReadDir(wsPath)
+	if err != nil {
+		t.Fatalf("workspace dir should exist: %v", err)
+	}
+	if len(entries) != 0 {
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		t.Errorf("expected empty workspace after clearing stale worktree, got: %v", names)
+	}
+}
+
+// TestProvisionAgentGitClone_PreservesExistingClone verifies that when git
+// clone mode is active and the workspace already has a real git clone (.git
+// directory), the content is preserved for the stop/restart case.
+func TestProvisionAgentGitClone_PreservesExistingClone(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	globalScionDir := filepath.Join(tmpDir, ".scion")
+	os.MkdirAll(filepath.Join(globalScionDir, "templates"), 0755)
+	seedTestHarnessConfig(t, globalScionDir, "gemini", "gemini")
+	tplDir := filepath.Join(globalScionDir, "templates", "gemini")
+	os.MkdirAll(tplDir, 0755)
+	os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(`{"default_harness_config":"gemini"}`), 0644)
+
+	projectDir := filepath.Join(tmpDir, "project")
+	projectScionDir := filepath.Join(projectDir, ".scion")
+	os.MkdirAll(projectScionDir, 0755)
+
+	// Pre-populate the workspace with a real git clone: .git as a DIRECTORY.
+	agentsDir := filepath.Join(projectDir, ".scion", "agents")
+	existingClone := filepath.Join(agentsDir, "restart-agent", "workspace")
+	os.MkdirAll(existingClone, 0755)
+	os.MkdirAll(filepath.Join(existingClone, ".git"), 0755) // real clone marker
+	os.WriteFile(filepath.Join(existingClone, "main.go"), []byte("package main\n"), 0644)
+
+	gitClone := &api.GitCloneConfig{
+		URL:    "https://github.com/example/repo.git",
+		Branch: "main",
+		Depth:  1,
+	}
+	ctx := api.ContextWithGitClone(context.Background(), gitClone)
+
+	_, wsPath, _, err := ProvisionAgent(ctx, "restart-agent", "gemini", "", "", projectScionDir, "", "", "", "")
+	if err != nil {
+		t.Fatalf("ProvisionAgent failed: %v", err)
+	}
+
+	// The workspace should still have the previous clone content.
+	if _, err := os.Stat(filepath.Join(wsPath, "main.go")); err != nil {
+		t.Errorf("expected main.go to be preserved in existing clone workspace: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wsPath, ".git")); err != nil {
+		t.Errorf("expected .git directory to be preserved: %v", err)
+	}
+}

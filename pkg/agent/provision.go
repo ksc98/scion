@@ -278,9 +278,28 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 
 	// Workspace Resolution Logic
 	if gitClone != nil {
-		// Git clone mode: create the workspace directory on the host so it can
-		// be bind-mounted into the container. sciontool will clone the repo
-		// into this directory at container startup.
+		// Git clone mode: ensure the workspace directory exists and is ready
+		// for sciontool to clone into at container startup.
+		//
+		// If the directory already exists with a real git clone (.git as a
+		// directory), preserve it — this is a stopped agent being restarted
+		// and sciontool will skip the clone correctly.
+		//
+		// If the directory has a .git FILE (worktree pointer from a previous
+		// local-mode run) or other non-clone content, clear it so sciontool
+		// sees an empty workspace and performs a fresh clone.
+		if info, err := os.Stat(agentWorkspace); err == nil && info.IsDir() {
+			gitDir := filepath.Join(agentWorkspace, ".git")
+			gitDirInfo, gitErr := os.Stat(gitDir)
+			isRealClone := gitErr == nil && gitDirInfo.IsDir()
+			if !isRealClone {
+				util.Debugf("provision: clearing stale workspace before git clone: %s", agentWorkspace)
+				_ = util.MakeWritableRecursive(agentWorkspace)
+				if err := os.RemoveAll(agentWorkspace); err != nil {
+					return "", "", nil, fmt.Errorf("failed to clear stale workspace dir: %w", err)
+				}
+			}
+		}
 		if err := os.MkdirAll(agentWorkspace, 0755); err != nil {
 			return "", "", nil, fmt.Errorf("failed to create workspace dir: %w", err)
 		}
