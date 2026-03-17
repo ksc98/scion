@@ -130,8 +130,21 @@ func (s *Server) createGCPServiceAccount(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, http.StatusCreated, sa)
 }
 
+// GCPServiceAccountWithCapabilities wraps a service account with its per-item capabilities.
+type GCPServiceAccountWithCapabilities struct {
+	store.GCPServiceAccount
+	Cap *Capabilities `json:"_capabilities,omitempty"`
+}
+
+// ListGCPServiceAccountsResponse is the response for listing GCP service accounts.
+type ListGCPServiceAccountsResponse struct {
+	Items        []GCPServiceAccountWithCapabilities `json:"items"`
+	Capabilities *Capabilities                       `json:"_capabilities,omitempty"`
+}
+
 func (s *Server) listGCPServiceAccounts(w http.ResponseWriter, r *http.Request, groveID string) {
-	sas, err := s.store.ListGCPServiceAccounts(r.Context(), store.GCPServiceAccountFilter{
+	ctx := r.Context()
+	sas, err := s.store.ListGCPServiceAccounts(ctx, store.GCPServiceAccountFilter{
 		Scope:   store.ScopeGrove,
 		ScopeID: groveID,
 	})
@@ -142,7 +155,34 @@ func (s *Server) listGCPServiceAccounts(w http.ResponseWriter, r *http.Request, 
 	if sas == nil {
 		sas = []store.GCPServiceAccount{}
 	}
-	writeJSON(w, http.StatusOK, sas)
+
+	identity := GetIdentityFromContext(ctx)
+
+	items := make([]GCPServiceAccountWithCapabilities, len(sas))
+	if identity != nil {
+		resources := make([]Resource, len(sas))
+		for i := range sas {
+			resources[i] = gcpServiceAccountResource(&sas[i])
+		}
+		caps := s.authzService.ComputeCapabilitiesBatch(ctx, identity, resources, "gcp_service_account")
+		for i := range sas {
+			items[i] = GCPServiceAccountWithCapabilities{GCPServiceAccount: sas[i], Cap: caps[i]}
+		}
+	} else {
+		for i := range sas {
+			items[i] = GCPServiceAccountWithCapabilities{GCPServiceAccount: sas[i]}
+		}
+	}
+
+	var scopeCap *Capabilities
+	if identity != nil {
+		scopeCap = s.authzService.ComputeScopeCapabilities(ctx, identity, "grove", groveID, "gcp_service_account")
+	}
+
+	writeJSON(w, http.StatusOK, ListGCPServiceAccountsResponse{
+		Items:        items,
+		Capabilities: scopeCap,
+	})
 }
 
 func (s *Server) getGCPServiceAccount(w http.ResponseWriter, r *http.Request, groveID, saID string) {

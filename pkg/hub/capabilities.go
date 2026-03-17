@@ -33,7 +33,8 @@ var ResourceActions = map[string][]Action{
 	"group":    {ActionRead, ActionUpdate, ActionDelete, ActionAddMember, ActionRemoveMember},
 	"user":     {ActionRead, ActionUpdate},
 	"policy":   {ActionRead, ActionUpdate, ActionDelete},
-	"broker":   {ActionRead, ActionUpdate, ActionDelete, ActionDispatch},
+	"broker":              {ActionRead, ActionUpdate, ActionDelete, ActionDispatch},
+	"gcp_service_account": {ActionRead, ActionDelete, ActionVerify},
 }
 
 // ScopeActions maps resource types to scope-level actions (e.g., create, list).
@@ -43,7 +44,8 @@ var ScopeActions = map[string][]Action{
 	"template": {ActionCreate, ActionList},
 	"group":    {ActionCreate, ActionList},
 	"policy":   {ActionCreate, ActionList},
-	"broker":   {ActionCreate, ActionList},
+	"broker":              {ActionCreate, ActionList},
+	"gcp_service_account": {ActionCreate, ActionList},
 }
 
 // agentResource constructs a Resource from a store.Agent for capability computation.
@@ -110,6 +112,17 @@ func brokerResource(b *store.RuntimeBroker) Resource {
 		Type:    "broker",
 		ID:      b.ID,
 		OwnerID: b.CreatedBy,
+	}
+}
+
+// gcpServiceAccountResource constructs a Resource from a store.GCPServiceAccount for capability computation.
+func gcpServiceAccountResource(sa *store.GCPServiceAccount) Resource {
+	return Resource{
+		Type:       "gcp_service_account",
+		ID:         sa.ID,
+		OwnerID:    sa.CreatedBy,
+		ParentType: "grove",
+		ParentID:   sa.ScopeID,
 	}
 }
 

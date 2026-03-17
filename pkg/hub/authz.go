@@ -42,6 +42,7 @@ const (
 	ActionRemoveMember Action = "removeMember"
 	ActionDispatch     Action = "dispatch"
 	ActionStopAll      Action = "stop_all"
+	ActionVerify       Action = "verify"
 )
 
 // Resource represents the target of an authorization check.
