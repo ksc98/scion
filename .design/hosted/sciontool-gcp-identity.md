@@ -566,18 +566,18 @@ Log token generation events (not sidecar cache hits) with agent ID, grove ID, SA
 
 ## Implementation Sketch
 
-### Phase 1: Foundation (MVP)
+### Phase 1: Foundation (MVP) ✅ Complete
 
 **Goal**: End-to-end token flow for a single assigned SA, including both access tokens and identity tokens.
 
-1. **Store layer**: Add `GCPServiceAccount` model and store interface methods.
-2. **Hub endpoints**: CRUD for grove service accounts + verify endpoint.
-3. **Hub token endpoints**: `POST /api/v1/agent/gcp-token` and `POST /api/v1/agent/gcp-identity-token` with IAM Credentials integration.
-4. **Agent token scope**: Add `grove:gcp:token:<sa-id>` scoped scope.
-5. **sciontool metadata server**: In-process HTTP server within sciontool implementing token, identity token, and project-id endpoints, gated by `SCION_METADATA_MODE` env var.
-6. **Provisioning changes**: Set metadata server env vars and `GCE_METADATA_HOST`.
-7. **Agent model extension**: Add `GCPIdentityConfig` to agent creation/config.
-8. **SA assignment permission**: Implement `assign` permission check on service account resources.
+1. ✅ **Store layer**: Add `GCPServiceAccount` model and store interface methods.
+2. ✅ **Hub endpoints**: CRUD for grove service accounts + verify endpoint.
+3. ✅ **Hub token endpoints**: `POST /api/v1/agent/gcp-token` and `POST /api/v1/agent/gcp-identity-token` with IAM Credentials integration.
+4. ✅ **Agent token scope**: Add `grove:gcp:token:<sa-id>` scoped scope.
+5. ✅ **sciontool metadata server**: In-process HTTP server within sciontool implementing token, identity token, and project-id endpoints, gated by `SCION_METADATA_MODE` env var.
+6. ✅ **Provisioning changes**: Set metadata server env vars and `GCE_METADATA_HOST`.
+7. ✅ **Agent model extension**: Add `GCPIdentityConfig` to agent creation/config.
+8. **SA assignment permission**: Deferred to Phase 2 — permission check on service account resources.
 
 **Files to create/modify**:
 
