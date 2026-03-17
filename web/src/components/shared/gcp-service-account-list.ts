@@ -21,10 +21,14 @@
  * Follows the same patterns as scion-secret-list.
  */
 
-import { LitElement, html, nothing } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
-import type { GCPServiceAccount, Capabilities } from '../../shared/types.js';
+import type {
+  GCPServiceAccount,
+  GCPVerificationStatus,
+  Capabilities,
+} from '../../shared/types.js';
 import { can } from '../../shared/types.js';
 import { apiFetch } from '../../client/api.js';
 import { resourceStyles } from './resource-styles.js';
@@ -51,7 +55,16 @@ export class ScionGCPServiceAccountList extends LitElement {
   @state() private verifyingId: string | null = null;
   @state() private deletingId: string | null = null;
 
-  static override styles = [resourceStyles];
+  static override styles = [
+    resourceStyles,
+    css`
+      .status-cell-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+      }
+    `,
+  ];
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -205,6 +218,11 @@ export class ScionGCPServiceAccountList extends LitElement {
     } finally {
       this.deletingId = null;
     }
+  }
+
+  private getVerificationStatus(account: GCPServiceAccount): GCPVerificationStatus {
+    if (account.verificationStatus) return account.verificationStatus;
+    return account.verified ? 'verified' : 'unverified';
   }
 
   private formatRelativeTime(dateString: string): string {
@@ -364,30 +382,8 @@ export class ScionGCPServiceAccountList extends LitElement {
         <td class="hide-mobile">
           <span class="meta-text">${account.displayName || '\u2014'}</span>
         </td>
-        <td>
-          ${account.verified
-            ? html`<sl-badge variant="success">
-                Verified
-                ${account.verifiedAt
-                  ? html` <sl-tooltip
-                      content="Verified ${this.formatRelativeTime(account.verifiedAt)}"
-                      ><span>✓</span></sl-tooltip
-                    >`
-                  : ''}
-              </sl-badge>`
-            : html`<sl-badge variant="warning">Unverified</sl-badge>`}
-        </td>
+        <td>${this.renderStatus(account, isVerifying, isDeleting)}</td>
         <td class="actions-cell">
-          ${!account.verified && can(account._capabilities, 'verify')
-            ? html`
-                <sl-icon-button
-                  name="check-circle"
-                  label="Verify"
-                  ?disabled=${isVerifying || isDeleting}
-                  @click=${() => this.handleVerify(account)}
-                ></sl-icon-button>
-              `
-            : ''}
           ${can(account._capabilities, 'delete')
             ? html`
                 <sl-icon-button
@@ -400,6 +396,54 @@ export class ScionGCPServiceAccountList extends LitElement {
             : ''}
         </td>
       </tr>
+    `;
+  }
+
+  private renderStatus(
+    account: GCPServiceAccount,
+    isVerifying: boolean,
+    isDeleting: boolean
+  ) {
+    const status = this.getVerificationStatus(account);
+
+    const badge =
+      status === 'verified'
+        ? html`<sl-badge variant="success">
+            Verified
+            ${account.verifiedAt
+              ? html`<sl-tooltip
+                  content="Verified ${this.formatRelativeTime(account.verifiedAt)}"
+                  ><span>\u2713</span></sl-tooltip
+                >`
+              : ''}
+          </sl-badge>`
+        : status === 'failed'
+          ? html`<sl-tooltip
+              content=${account.verificationError ||
+              'Hub service account lacks serviceAccountTokenCreator role on this SA.'}
+            >
+              <sl-badge variant="danger">Failed</sl-badge>
+            </sl-tooltip>`
+          : html`<sl-badge variant="warning">Unverified</sl-badge>`;
+
+    const canVerify = can(account._capabilities, 'verify');
+
+    return html`
+      <div class="status-cell-inline">
+        ${badge}
+        ${canVerify
+          ? html`
+              <sl-icon-button
+                name="arrow-clockwise"
+                label="Re-check verification"
+                style="font-size: 0.875rem;"
+                ?disabled=${isVerifying || isDeleting}
+                @click=${() => this.handleVerify(account)}
+              ></sl-icon-button>
+            `
+          : ''}
+        ${isVerifying ? html`<sl-spinner style="font-size: 0.75rem;"></sl-spinner>` : ''}
+      </div>
     `;
   }
 

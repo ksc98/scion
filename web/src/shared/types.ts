@@ -586,6 +586,8 @@ export interface ListResponse<T> {
 // GCP Identity types
 // ---------------------------------------------------------------------------
 
+export type GCPVerificationStatus = 'unverified' | 'verified' | 'failed';
+
 export interface GCPServiceAccount {
   id: string;
   scope: string;
@@ -596,6 +598,8 @@ export interface GCPServiceAccount {
   defaultScopes: string[];
   verified: boolean;
   verifiedAt: string | null;
+  verificationStatus?: GCPVerificationStatus;
+  verificationError?: string;
   createdBy: string;
   createdAt: string;
   _capabilities?: Capabilities;
