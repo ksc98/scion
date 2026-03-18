@@ -1,7 +1,7 @@
 # GitHub App Integration for Scion Agents
 
 **Created:** 2026-03-18
-**Status:** Draft / Proposal (Rev 2)
+**Status:** Draft / Proposal (Rev 3)
 **Related:** `hosted/git-groves.md`, `hosted/secrets-gather.md`, `agent-credentials.md`, `hosted/auth/oauth-setup.md`
 
 ---
@@ -22,14 +22,17 @@ Today, Scion agents authenticate to GitHub using **Personal Access Tokens (PATs)
 
 1. Support GitHub App installation tokens as a credential source for agent git operations (clone, push) and GitHub API access (PRs, issues).
 2. Automatic short-lived token generation — no manual rotation required.
-3. Clear ownership model: who registers the app, who installs it, how installations map to groves.
+3. Clear ownership model: one GitHub App per Hub, grove owners install it for their repos.
 4. Coexist with the existing PAT flow — GitHub App is an alternative, not a replacement.
 
 ### Non-Goals
 
+- Webhook-driven agent creation (GitHub App receiving events to trigger agents). Deferred to a future design.
 - GitHub App as a Scion Hub user authentication provider (the existing GitHub OAuth flow handles Hub login separately).
 - Multi-provider abstraction (GitLab, Bitbucket app equivalents). This design targets GitHub only.
 - GitHub App Manifest flow for automated app creation.
+- Solo/local mode support. GitHub App is Hub-only; solo mode continues to use PATs.
+- User-Brought Apps (BYOA). Each user registering their own GitHub App adds complexity with minimal benefit. May be revisited as a future escape hatch.
 
 ---
 
@@ -105,105 +108,90 @@ The installer chooses which repositories the app can access:
 
 ---
 
-## 3. Ownership Model: Who Owns What?
+## 3. Ownership Model
 
-This is the central design question. There are three levels at which a GitHub App could be attached to Scion:
-
-### 3.1 Option A: Hub-Level App (Recommended)
-
-**One GitHub App per Scion Hub deployment.**
+**One GitHub App per Scion Hub deployment. The Hub admin creates it. Grove owners install it.**
 
 ```
-Scion Hub
+Scion Hub (1:1 with GitHub App)
   └── GitHub App (registered by Hub admin)
+        │
+        │  Hub stores: App ID, Private Key, Webhook Secret
+        │
         ├── Installation: org-acme (installation_id: 12345)
         │     ├── Grove: acme-widgets → repo: acme/widgets
         │     └── Grove: acme-api → repo: acme/api
+        │
         ├── Installation: org-beta (installation_id: 67890)
         │     └── Grove: beta-platform → repo: beta/platform
+        │
         └── Installation: user-alice (installation_id: 11111)
               └── Grove: alice-dotfiles → repo: alice/dotfiles
 ```
 
-**Who does what:**
+### 3.1 Roles and Responsibilities
 
 | Actor | Action |
 |-------|--------|
-| **Hub Admin** | Registers the GitHub App on GitHub. Configures App ID + private key on the Hub server. |
-| **Org Admin / Repo Owner** | Installs the GitHub App on their org or user account (via GitHub UI). Selects which repos the app can access. |
-| **Grove Creator** | Links a grove to a GitHub App installation (by providing the installation ID or via auto-discovery). |
+| **Hub Admin** | Registers the GitHub App on GitHub. Configures the Hub with App ID, private key, and setup URL. This is a one-time operation per Hub deployment. |
+| **Grove Owner** | Installs the GitHub App on their GitHub org or user account for the grove's repo. GitHub's post-installation callback notifies the Hub, which auto-associates the installation with the matching grove. |
 
-**Pros:**
-- Single app to manage. Org admins see one "Scion" app in their installed apps.
-- Hub admin controls the app's maximum permissions.
-- Natural fit for the Hub's role as central state authority.
-- The private key never leaves the Hub — brokers receive only short-lived installation tokens.
-
-**Cons:**
-- Requires the Hub admin to register a GitHub App (operational burden for self-hosted deployments).
-- The Hub must be reachable to mint tokens (already true for hosted mode).
-- All organizations using the Hub must trust the same app identity.
-
-### 3.2 Option B: User-Brought App (BYOA)
-
-**Each user (or organization) registers their own GitHub App and provides credentials to the Hub.**
+### 3.2 Installation Flow
 
 ```
-Scion Hub
-  ├── User: alice
-  │     └── GitHub App: alice-scion-app (App ID: 111, private key stored as secret)
-  │           └── Installation: org-acme (installation_id: 12345)
-  │                 └── Grove: acme-widgets
-  └── User: bob
-        └── GitHub App: bob-scion-app (App ID: 222, private key stored as secret)
-              └── Installation: org-beta (installation_id: 67890)
-                    └── Grove: beta-platform
+Grove Owner                GitHub.com                   Scion Hub
+    |                          |                            |
+    |-- "Install App" ------->|                            |
+    |   (from grove settings  |                            |
+    |    or Hub admin page)   |                            |
+    |                          |                            |
+    |   GitHub shows app      |                            |
+    |   install page:         |                            |
+    |   - select org/user     |                            |
+    |   - select repo(s)      |                            |
+    |                          |                            |
+    |-- Approve install ----->|                            |
+    |                          |                            |
+    |                          |-- POST webhook:            |
+    |                          |   installation.created --->|
+    |                          |                            |-- Record installation
+    |                          |                            |-- Match to grove(s)
+    |                          |                            |   by repo URL
+    |                          |                            |-- Update grove settings
+    |                          |                            |
+    |                          |-- Redirect to setup URL -->|
+    |                          |   ?installation_id=12345   |
+    |                          |                            |
+    |<-- Hub shows confirmation page -----------------------|
+    |   "App installed for org 'acme'.                     |
+    |    Grove 'acme-widgets' now uses GitHub App auth."   |
 ```
 
-**Who does what:**
-
-| Actor | Action |
-|-------|--------|
-| **User / Org Admin** | Registers their own GitHub App. Provides App ID + private key to Scion (stored as a secret). |
-| **User** | Installs the app on their org/account and associates installations with groves. |
-
-**Pros:**
-- No Hub admin involvement for GitHub setup.
-- Users maintain full control over their app's permissions and installations.
-- Different orgs can have fully independent app configurations.
-
-**Cons:**
-- More complex UX — every user must understand GitHub App registration.
-- Private keys are uploaded as secrets to the Hub (acceptable with existing encrypted secret storage, but expands the trust surface).
-- Multiple apps installed on the same org creates visual clutter in GitHub's UI.
-
-### 3.3 Option C: Grove-Level App
-
-**Each grove can have its own GitHub App configuration.**
-
-This is essentially a finer-grained variant of Option B. Rather than one app per user, each grove can reference a different app. This adds flexibility but multiplies complexity. Not recommended as a primary model but should be supported as an escape hatch.
-
-### 3.4 Recommendation
-
-**Primary: Option A (Hub-Level App)** with **Option B (BYOA) as an advanced override.**
-
-The Hub-level app covers the majority case: a team or organization deploys Scion Hub and configures a single GitHub App. Users install it on their orgs. This is the simplest UX for grove creators — they don't need to know about GitHub App internals.
-
-For advanced users or multi-tenant deployments where organizations don't want to share an app identity, BYOA allows storing a user-specific or grove-specific GitHub App configuration. This uses the existing secret storage system.
-
-The resolution hierarchy for GitHub App credentials follows the existing scope pattern:
-
+The **setup URL** is configured when registering the GitHub App on GitHub:
 ```
-Grove GitHub App config  →  (most specific, if set)
-  ↓ fallback
-User GitHub App config   →  (BYOA, if user registered their own app)
-  ↓ fallback
-Hub GitHub App config    →  (default, managed by Hub admin)
-  ↓ fallback
-GITHUB_TOKEN secret      →  (legacy PAT flow)
+https://{hub_external_url}/github-app/setup
 ```
 
-**Solo/Local Mode:** GitHub App is **Hub-only**. Solo mode continues to use PATs exclusively. GitHub App requires infrastructure (key management, token minting) that naturally lives on a server.
+GitHub appends `installation_id` and `setup_action` query parameters. The Hub uses this to:
+1. Look up the installation via the GitHub API (repos, permissions).
+2. Match the installation's repos against existing groves.
+3. Auto-associate matching groves with the installation.
+4. Redirect the user to a confirmation page.
+
+The **webhook** (`installation.created`) also fires, providing a server-to-server confirmation. Both mechanisms (setup URL redirect + webhook) are handled idempotently — either one alone is sufficient, both together provide redundancy.
+
+### 3.3 Credential Resolution
+
+When an agent starts, the Hub resolves credentials in this order:
+
+```
+1. Grove-scoped GITHUB_TOKEN secret (explicit PAT override)
+2. GitHub App installation token (if grove has an associated installation)
+3. User-scoped GITHUB_TOKEN secret (user's PAT)
+4. Hub-level GITHUB_TOKEN secret (shared PAT, if any)
+```
+
+If a grove has both a `GITHUB_TOKEN` secret and an associated installation, the explicit secret wins. This allows per-grove PAT override (e.g., for permissions the app doesn't have).
 
 ---
 
@@ -222,6 +210,7 @@ github_app:
   # private_key: |
   #   -----BEGIN RSA PRIVATE KEY-----
   #   ...
+  webhook_secret: "whsec_..."     # For validating incoming webhooks
   api_base_url: https://api.github.com  # default; override for GHES
 ```
 
@@ -232,25 +221,26 @@ type GitHubAppConfig struct {
     AppID          int64  `json:"app_id" yaml:"app_id" koanf:"app_id"`
     PrivateKeyPath string `json:"private_key_path,omitempty" yaml:"private_key_path,omitempty" koanf:"private_key_path"`
     PrivateKey     string `json:"private_key,omitempty" yaml:"private_key,omitempty" koanf:"private_key"`
+    WebhookSecret  string `json:"webhook_secret,omitempty" yaml:"webhook_secret,omitempty" koanf:"webhook_secret"`
     APIBaseURL     string `json:"api_base_url,omitempty" yaml:"api_base_url,omitempty" koanf:"api_base_url"`
 }
 ```
 
-**Settings Schema Note:** The `api_base_url` field must be tracked in the Hub settings schema for validation and UI rendering (see §11.5 resolution).
+**Settings Schema Note:** All fields must be tracked in the Hub settings schema for validation and UI rendering. The `api_base_url` field enables GitHub Enterprise Server support.
 
 ### 4.2 Installation Registration
 
-Each GitHub App installation is registered as a Hub resource, linked to an organization or user:
+Each GitHub App installation is registered as a Hub resource. Installations are created automatically when the grove owner installs the app (via webhook or setup URL callback):
 
 ```go
 type GitHubInstallation struct {
     InstallationID int64     `json:"installation_id"`
     AccountLogin   string    `json:"account_login"`   // GitHub org or user login
     AccountType    string    `json:"account_type"`     // "Organization" or "User"
-    AppID          int64     `json:"app_id"`           // Which app this installation belongs to
-    CreatedAt      time.Time `json:"created_at"`
-    CreatedBy      string    `json:"created_by"`       // Scion user who registered it
+    AppID          int64     `json:"app_id"`           // Always matches Hub's app
+    Repositories   []string  `json:"repositories"`     // Repos granted access to
     Status         string    `json:"status"`           // "active", "suspended", "deleted"
+    CreatedAt      time.Time `json:"created_at"`
 }
 ```
 
@@ -265,6 +255,7 @@ type Grove struct {
 
     // GitHubInstallationID links this grove to a GitHub App installation.
     // When set, agents use installation tokens instead of PATs.
+    // Set automatically by the setup URL callback or webhook handler.
     GitHubInstallationID *int64 `json:"github_installation_id,omitempty"`
 
     // GitHubPermissions specifies the permissions to request when minting
@@ -278,30 +269,11 @@ type GitHubTokenPermissions struct {
     Issues       string `json:"issues,omitempty"`        // "read" or "write"
     Metadata     string `json:"metadata,omitempty"`      // "read"
     Checks       string `json:"checks,omitempty"`        // "read" or "write"
-    Actions      string `json:"actions,omitempty"`       // "read"
+    Actions      string `json:"actions,omitempty"`        // "read"
 }
 ```
 
 Since groves are 1:1 with a repository, the installation token is always scoped to exactly one repo. The Hub automatically restricts the token to the grove's target repository regardless of whether the installation grants broader access.
-
-### 4.4 BYOA: User-Level App Credentials
-
-For Option B, the user stores their GitHub App credentials as secrets:
-
-```bash
-# Store App ID as a user-scoped secret
-scion hub secret set GITHUB_APP_ID --type variable 123456
-
-# Store private key as a user-scoped file secret
-scion hub secret set GITHUB_APP_PRIVATE_KEY --type file @./my-app-key.pem
-```
-
-Or at grove scope for grove-level override:
-
-```bash
-scion hub secret set GITHUB_APP_ID --grove acme-widgets --type variable 789
-scion hub secret set GITHUB_APP_PRIVATE_KEY --grove acme-widgets --type file @./grove-key.pem
-```
 
 ---
 
@@ -309,13 +281,13 @@ scion hub secret set GITHUB_APP_PRIVATE_KEY --grove acme-widgets --type file @./
 
 ### 5.1 Token Minting
 
-The Hub is the sole authority for minting installation tokens. This ensures private keys never leave the Hub.
+The Hub is the sole authority for minting installation tokens. The private key never leaves the Hub.
 
 ```
 Agent Start                   Hub                          GitHub API
     |                          |                              |
     |-- CreateAgent ---------->|                              |
-    |                          |-- Resolve grove ------------>|
+    |                          |-- Resolve grove              |
     |                          |   (has installation_id?)     |
     |                          |                              |
     |                          |-- Generate JWT (app key) --->|
@@ -323,10 +295,8 @@ Agent Start                   Hub                          GitHub API
     |                          |-- POST /installations/       |
     |                          |   {id}/access_tokens ------->|
     |                          |   { repositories: [repo],    |
-    |                          |     permissions: {            |
-    |                          |       contents: write,        |
-    |                          |       pull_requests: write    |
-    |                          |     }                         |
+    |                          |     permissions: (from grove |
+    |                          |       settings or defaults)  |
     |                          |   }                          |
     |                          |                              |
     |                          |<-- token: ghs_xxx (1hr) -----|
@@ -359,7 +329,7 @@ This provides the most native git integration — git operations transparently r
 
 #### Component 2: Background Refresh Loop (API/CLI Operations)
 
-`sciontool` runs a background goroutine that proactively refreshes the token before expiry, ensuring the `GITHUB_TOKEN` environment variable and on-disk token file stay current for non-git consumers like the `gh` CLI:
+`sciontool` runs a background goroutine that proactively refreshes the token before expiry, ensuring the on-disk token file stays current for non-git consumers like the `gh` CLI:
 
 ```
 sciontool init
@@ -373,14 +343,14 @@ sciontool init
              - updates git credential helper cache
 ```
 
-The `gh` CLI and other tools that read `GITHUB_TOKEN` can be configured to read from `/tmp/.github-token` via a wrapper, or the token file path can be set via `GH_TOKEN_PATH` (custom env var read by sciontool's gh wrapper).
+The `gh` CLI is wrapped by a lightweight script that reads the current token from the token file before delegating to the real `gh` binary, ensuring it always uses a fresh token.
 
 #### Why Both?
 
 | Consumer | Mechanism | Rationale |
 |----------|-----------|-----------|
 | `git clone/push` | Credential helper | Native git integration; lazy refresh only when needed |
-| `gh` CLI | Background loop | `gh` reads `GITHUB_TOKEN` at invocation time; needs proactive refresh |
+| `gh` CLI | Background loop + wrapper | `gh` reads token at invocation; wrapper reads fresh file |
 | Custom scripts | Background loop | Any process reading the token file gets a fresh value |
 
 ### 5.3 Environment Variables
@@ -396,25 +366,25 @@ The following environment variables control GitHub App token behavior inside the
 
 ---
 
-## 6. Installation Discovery and Association
+## 6. Installation Lifecycle
 
-### 6.1 Manual Association
+### 6.1 App Installation (Primary Flow)
 
-The simplest flow: the user provides the installation ID when creating or configuring a grove.
+The primary way groves get associated with the GitHub App is through the **installation callback flow** described in §3.2. The grove owner installs the app from a link in the Hub UI (grove settings or Hub admin page), GitHub handles the authorization UI, and the Hub auto-associates the installation with matching groves.
+
+### 6.2 Manual Association (Fallback)
+
+If the callback flow doesn't match correctly (e.g., grove was created after installation), a manual association is available:
 
 ```bash
-# During grove creation
-scion hub grove create https://github.com/acme/widgets.git --github-installation 12345
-
-# Or after creation
 scion hub grove set acme-widgets --github-installation 12345
 ```
 
-The user finds the installation ID from the GitHub App's installation page or from `GET /app/installations` (which the Hub can proxy).
+The Hub validates that the installation exists and includes the grove's target repo.
 
-### 6.2 Auto-Discovery
+### 6.3 Auto-Discovery (Fallback)
 
-When a grove is created from a GitHub URL and the Hub has a GitHub App configured, the Hub can automatically discover matching installations:
+When a grove is created from a GitHub URL and the Hub has a GitHub App configured, the Hub can discover matching installations:
 
 ```
 1. Hub generates JWT (app identity)
@@ -422,63 +392,39 @@ When a grove is created from a GitHub URL and the Hub has a GitHub App configure
 3. For each installation, calls GET /installation/repositories
 4. Finds installation(s) that include the grove's target repo
 5. If exactly one match: auto-associate
-6. If multiple matches: prompt user to select (or pick the org-level one)
-7. If no match: fall back to PAT, suggest installing the app
+6. If no match: grove uses PAT, grove settings show "Install GitHub App" link
 ```
 
-This auto-discovery runs during `scion hub grove create` or `scion start` (if the grove doesn't yet have an installation associated).
+This auto-discovery runs during `scion hub grove create`.
 
-**Automated Install Scope:** Since groves are 1:1 with a repository, the Hub can programmatically scope the installation token to exactly the grove's target repo at minting time. Even if the installation grants "all repositories" access, the minted token is restricted to the single target repo. The Hub should log a recommendation when it detects an installation with overly broad "all repositories" access.
+### 6.4 Webhooks
 
-### 6.3 Installation Registration Flow
+GitHub sends webhooks for installation lifecycle events. The Hub's webhook endpoint handles them idempotently:
 
-For Hub-level apps, a streamlined flow:
+| Event | Hub Action |
+|-------|------------|
+| `installation.created` | Record installation, match to groves by repo |
+| `installation.deleted` | Mark installation as `deleted`, notify affected groves |
+| `installation.suspend` | Mark as `suspended`, affected groves fall back to PAT |
+| `installation.unsuspend` | Mark as `active`, groves resume using app tokens |
+| `installation_repositories.added` | Update installation's repo list, check for new grove matches |
+| `installation_repositories.removed` | Update repo list, disassociate affected groves |
 
-```bash
-# Hub admin: configure the app (one-time)
-scion server --github-app-id 123456 --github-app-key /path/to/key.pem
+**Public-Facing Requirement:** Webhooks require the Hub to be publicly reachable. The Hub config includes a flag:
 
-# User: install the app on their org (happens on GitHub.com)
-# GitHub redirects to Hub callback URL after installation
-
-# User: create a grove (auto-discovers installation)
-scion hub grove create https://github.com/acme/widgets.git
-# Output:
-#   Grove created: acme-widgets
-#   GitHub App: Found installation for org 'acme' (id: 12345)
-#   Credential source: GitHub App (auto-refresh enabled)
+```yaml
+github_app:
+  webhooks_enabled: true  # admin asserts Hub is publicly reachable
 ```
 
-### 6.4 Installation Webhooks
+When `webhooks_enabled` is false, the Hub falls back to auto-discovery and manual association. A validation step during setup can optionally verify reachability by registering a test webhook and checking for the ping event.
 
-GitHub sends webhooks when the app is installed, uninstalled, or suspended. The Hub registers a webhook endpoint to automatically track installation lifecycle:
-
-```
-POST /api/v1/webhooks/github
-
-Payload: { action: "created", installation: { id: 12345, account: { login: "acme" } } }
-→ Hub creates GitHubInstallation record (status: "active")
-
-Payload: { action: "deleted", installation: { id: 12345 } }
-→ Hub marks installation as "deleted", alerts affected groves
-
-Payload: { action: "suspend", installation: { id: 12345 } }
-→ Hub marks installation as "suspended", affected groves fall back to PAT if available
-```
-
-**Public-Facing Requirement:** Webhook support is only available when the Hub endpoint is publicly reachable (GitHub must be able to POST to it). The Hub should:
-
-1. **Detect accessibility:** During GitHub App configuration, attempt to verify that the webhook URL is reachable (e.g., by checking if the configured `hub.external_url` resolves to a public address, or by registering and testing a webhook ping).
-2. **Graceful degradation:** If the Hub is not public-facing (e.g., behind a firewall, local network), webhooks are disabled and the Hub falls back to polling-based or manual discovery. A warning is surfaced in the admin UI.
-3. **Webhook secret:** The webhook endpoint validates payloads using a shared secret configured alongside the GitHub App, preventing spoofed events.
-
-**Revocation Handling:** When an installation is revoked (webhook `action: "deleted"` or detected via 403 during token minting):
-
-1. The Hub marks the installation as `deleted`.
+**Revocation Handling:** When an installation is revoked:
+1. The Hub marks the installation as `deleted` (via webhook or 403 during token minting).
 2. Running agents with valid tokens continue until their token expires (up to 1 hour).
-3. Token refresh attempts fail; `sciontool` logs a clear error: "GitHub App installation revoked for org 'acme'."
+3. Token refresh attempts fail; `sciontool` logs: "GitHub App installation revoked for org 'acme'."
 4. Affected groves fall back to PAT if one is configured, or surface an error status.
-5. The Hub sends a notification (via existing notification system) to the grove owner.
+5. The Hub notifies the grove owner.
 
 ---
 
@@ -488,28 +434,27 @@ Payload: { action: "suspend", installation: { id: 12345 } }
 
 ```
 # GitHub App configuration (admin only)
-GET    /api/v1/github-app              → Returns app config (app ID, status, not the key)
-PUT    /api/v1/github-app              → Update app config
+GET    /api/v1/github-app                          → App config (app ID, status, not the key)
+PUT    /api/v1/github-app                          → Update app config
 
-# Installations
-GET    /api/v1/github-app/installations           → List known installations
-POST   /api/v1/github-app/installations/discover   → Trigger discovery from GitHub API
-GET    /api/v1/github-app/installations/{id}       → Get installation details
+# Installations (auto-managed, read-mostly)
+GET    /api/v1/github-app/installations             → List known installations
+POST   /api/v1/github-app/installations/discover    → Trigger discovery from GitHub API
+GET    /api/v1/github-app/installations/{id}        → Get installation details
 
-# Grove association
-PUT    /api/v1/groves/{id}/github-installation     → Set installation for grove
-DELETE /api/v1/groves/{id}/github-installation     → Remove (fall back to PAT)
-
-# Grove GitHub permissions
-PUT    /api/v1/groves/{id}/github-permissions       → Set per-grove token permissions
-GET    /api/v1/groves/{id}/github-permissions       → Get current permission config
-DELETE /api/v1/groves/{id}/github-permissions       → Reset to defaults
+# Grove GitHub settings (in grove settings tab)
+PUT    /api/v1/groves/{id}/github-installation      → Set/override installation for grove
+DELETE /api/v1/groves/{id}/github-installation      → Remove (fall back to PAT)
+PUT    /api/v1/groves/{id}/github-permissions        → Set per-grove token permissions
+GET    /api/v1/groves/{id}/github-permissions        → Get current permission config
+DELETE /api/v1/groves/{id}/github-permissions        → Reset to defaults
 
 # Token refresh (called by sciontool inside agent container)
-POST   /api/v1/agents/{id}/refresh-token           → Mint fresh installation token
+POST   /api/v1/agents/{id}/refresh-token            → Mint fresh installation token
 
-# Webhooks
-POST   /api/v1/webhooks/github                     → Receive GitHub webhook events
+# Callbacks and webhooks
+GET    /github-app/setup                            → Post-installation callback (browser redirect)
+POST   /api/v1/webhooks/github                      → Receive GitHub webhook events
 ```
 
 ### 7.2 Modified Endpoints
@@ -541,12 +486,12 @@ The GitHub App should be registered with the **maximum permissions** any agent m
 
 ### 8.2 Per-Token Permission Restriction
 
-When minting an installation token, the Hub can request a **subset** of the app's registered permissions. This enables least-privilege per grove:
+When minting an installation token, the Hub requests a **subset** of the app's registered permissions. The token is always scoped to the single repo the grove targets.
 
 ```go
 // Token request body
 {
-    "repositories": ["widgets"],           // Scope to specific repo (always single repo, grove is 1:1)
+    "repositories": ["widgets"],
     "permissions": {
         "contents": "write",
         "pull_requests": "write",
@@ -581,58 +526,43 @@ github_permissions:
 
 If a grove does not have explicit permissions configured, the **default permission set** is used: `Contents: write, Pull Requests: write, Metadata: read`.
 
-**Validation:** The Hub validates that requested grove-level permissions do not exceed the app's registered permissions. If a grove requests `checks: write` but the app was not registered with Checks permission, the grove configuration is rejected with a clear error.
+**Validation:** The Hub validates that requested grove-level permissions do not exceed the app's registered permissions. If a grove requests `checks: write` but the app was not registered with Checks permission, the configuration is rejected with a clear error.
 
-**Web UI:** Grove-level permission settings are managed in the **Grove Settings tab** alongside other grove configuration.
+**Web UI:** Grove-level permission settings are managed in the **Grove Settings tab**.
 
 ---
 
 ## 9. Integration with Existing Systems
 
-### 9.1 Secret Resolution Pipeline
-
-The GitHub App integration slots into the existing secret resolution pipeline as a new resolution source. The priority order:
-
-```
-1. Grove-scoped GITHUB_TOKEN secret (explicit PAT override)
-2. GitHub App installation token (if grove has installation_id)
-3. User-scoped GITHUB_TOKEN secret (user's PAT)
-4. Hub-level GITHUB_TOKEN secret (shared PAT, if any)
-```
-
-If a grove has both a `GITHUB_TOKEN` secret and a `github_installation_id`, the explicit secret wins. This allows per-grove override (e.g., a grove that needs a token with org-admin permissions that the app doesn't have).
-
-### 9.2 Agent Transparency
+### 9.1 Agent Transparency
 
 The agent and harness code requires **zero changes**. The credential arrives as `GITHUB_TOKEN` regardless of source. The git credential helper configured by `sciontool` works identically with both PATs and installation tokens. The `gh` CLI also uses `GITHUB_TOKEN` natively.
 
-### 9.3 sciontool Changes
+### 9.2 sciontool Changes
 
 `sciontool` gains:
 
-1. **Token refresh credential helper**: When `SCION_GITHUB_APP_ENABLED=true` is set in the environment, the credential helper calls the Hub to refresh tokens instead of returning a static value.
+1. **Token refresh credential helper**: When `SCION_GITHUB_APP_ENABLED=true` is set, the credential helper calls the Hub to refresh tokens instead of returning a static value.
 2. **Background token refresh loop**: Proactively refreshes the token every 50 minutes, writing the fresh token to `SCION_GITHUB_TOKEN_PATH` for non-git consumers.
-3. **Token metadata awareness**: `sciontool` receives `SCION_GITHUB_TOKEN_EXPIRY` to know when the initial token expires, enabling proactive refresh scheduling.
+3. **gh wrapper**: A lightweight script at `/usr/local/bin/gh` that reads the current token from the token file before delegating to the real `gh` binary.
 
-### 9.4 Web UI
-
-The web frontend gains:
+### 9.3 Web UI
 
 **Hub Admin Page:**
-- GitHub App configuration (App ID, status, API base URL, webhook status).
+- GitHub App configuration (App ID, setup URL to give to GitHub, webhook status).
+- "Install App" link that directs to the GitHub App's public installation page.
 - Installation list with status indicators (active/suspended/deleted).
-- Discovery trigger button.
-- Webhook connectivity indicator (public-facing detection result).
+- Webhook connectivity indicator.
 
-**Grove Settings Tab** (grove-level items live here):
+**Grove Settings Tab** (grove-level items):
 - Credential source indicator (PAT vs GitHub App) with health status.
-- Installation association (select or auto-discover).
+- "Install GitHub App" button if no installation is associated (links to GitHub).
 - GitHub token permission configuration.
 - Token refresh status for active agents.
 
 **Grove Creation Flow:**
-- Option to select a GitHub App installation or enter PAT.
-- Auto-discovery results when creating from a GitHub URL.
+- Auto-discovery of existing installations for the repo.
+- Prompt to install the app if no installation found.
 
 ---
 
@@ -646,7 +576,7 @@ Commits from `scion-app[bot]@users.noreply.github.com`. Clear automated provenan
 
 ### 10.2 Option B: Custom Identity
 
-Groves or templates specify `git user.name` and `git user.email`. The installation token authenticates the push, but the commit author is the configured identity. This is already supported — custom templates use standard Scion environment variable injection for `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, etc.
+Groves or templates specify `git user.name` and `git user.email`. The installation token authenticates the push, but the commit author is the configured identity. Already supported — custom templates use standard Scion environment variable injection for `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, etc.
 
 ### 10.3 Option C: Co-authored-by Trailers
 
@@ -664,19 +594,18 @@ git_identity:
   email: "agent@example.com"
 ```
 
-The default is **bot identity** (Option A). Templates that already set git user identity via Scion env vars continue to work — the custom identity takes precedence when explicitly configured.
+The default is **bot identity** (Option A). Templates that already set git user identity via Scion env vars continue to work.
 
 ---
 
 ## 11. Rate Limiting
 
-GitHub App installation tokens have their own rate limit (5000 req/hr per installation). With many agents on the same grove (same installation), rate limits could potentially be exhausted by API-heavy agents.
+GitHub App installation tokens have their own rate limit (5000 req/hr per installation). With many agents on the same grove (same installation), rate limits could potentially be exhausted.
 
 **Strategy:**
 1. **Monitor:** The Hub logs rate limit headers (`X-RateLimit-Remaining`, `X-RateLimit-Reset`) from GitHub API responses during token minting.
 2. **Surface:** Rate limit status is included in agent health checks and visible in the Web UI.
 3. **Warn:** When remaining rate limit drops below a threshold (e.g., 20%), the Hub surfaces a warning on affected groves.
-4. **Future:** Consider per-agent rate limit budgeting if this becomes a practical issue.
 
 ---
 
@@ -691,27 +620,24 @@ github_app:
   api_base_url: https://github.mycompany.com/api/v3  # default: https://api.github.com
 ```
 
-**Settings schema tracking:** The `api_base_url` field is registered in the Hub settings schema so that:
-- The Web UI can render an appropriate configuration field.
-- Validation ensures the URL is well-formed and reachable.
-- The webhook public-facing detection (§6.4) accounts for GHES instances that may be on the same network as the Hub.
+**Settings schema tracking:** The `api_base_url` field is registered in the Hub settings schema for validation and UI rendering. For GHES instances on the same network as the Hub, webhook reachability is likely simpler (both behind the same firewall).
 
 ---
 
 ## 13. Private Key Rotation
 
-The GitHub App private key can be rotated using GitHub's multi-key support combined with Scion's existing secret management:
+The GitHub App private key can be rotated using GitHub's multi-key support:
 
 **Procedure:**
 1. Generate a new private key on GitHub (GitHub App settings → Generate a private key).
-2. Update the key in Scion: `scion hub secret update GITHUB_APP_PRIVATE_KEY --type file @./new-key.pem` (for BYOA) or update the Hub server config file / secret manager.
+2. Update the key on the Hub: update the config file or secret manager entry.
 3. Restart the Hub server or trigger a config reload.
 4. Verify token minting works with the new key.
 5. Delete the old key on GitHub.
 
 During steps 2-3, both keys are valid on GitHub's side, so there is no downtime window.
 
-**Documentation:** A runbook for key rotation should be included in the operations guide.
+A runbook for key rotation should be included in the operations guide.
 
 ---
 
@@ -719,49 +645,23 @@ During steps 2-3, both keys are valid on GitHub's side, so there is no downtime 
 
 ### 14.1 GitHub OAuth User Tokens for Git Operations
 
-Instead of a GitHub App, use the existing GitHub OAuth flow (already used for Hub login) to obtain user tokens with repo access scopes.
+**Why rejected:** OAuth user tokens inherit the user's full access — no repo restriction, no automatic refresh, commits attributed to user, conflates Hub auth with agent auth.
 
-**Why rejected:**
-- OAuth user tokens inherit the user's full access — no way to restrict to specific repos.
-- Token refresh requires user interaction (re-auth).
-- Commits attributed to the user, not the system.
-- Conflates Hub authentication (who is this person?) with agent authorization (what can this agent do?).
+### 14.2 GitHub App as Sole Auth Method (Replace PATs)
 
-### 14.2 GitHub App as Sole Auth Method (Replace PATs Entirely)
+**Why rejected:** PATs are simpler for solo/local mode. Not all users can install apps. Backward compatibility with existing deployments.
 
-Force all users to use GitHub App, deprecate PAT support.
+### 14.3 Per-Agent GitHub App
 
-**Why rejected:**
-- PATs are simpler for solo/local mode where there's no Hub.
-- Not all users have org admin access to install apps.
-- GitHub Enterprise Server may have restrictions on GitHub Apps.
-- Backward compatibility — existing deployments rely on PATs.
+**Why rejected:** GitHub limits on app creation. Massive operational overhead. No benefit over installation-scoped tokens.
 
-### 14.3 Per-Agent GitHub App (One App per Agent)
+### 14.4 User-Brought App (BYOA)
 
-Register a separate GitHub App for each agent.
-
-**Why rejected:**
-- GitHub has limits on app creation per account.
-- Massive operational overhead.
-- No benefit over installation-scoped tokens from a single app.
-
-### 14.4 GitHub App Owned by Grove Creator (Not Hub Admin)
-
-Instead of the Hub admin registering the app, require each grove creator to register one.
-
-**Why rejected as primary:**
-- Unreasonable UX burden for most users.
-- However, this is preserved as the BYOA escape hatch (Option B in §3.2).
+**Why rejected as primary:** Unreasonable UX burden — every user must understand GitHub App registration. Multiple apps on the same org creates clutter. The Hub-level app covers the majority case cleanly. May be revisited as a future escape hatch for multi-tenant deployments.
 
 ### 14.5 Proxy All Git Operations Through Hub
 
-Instead of giving agents tokens, route all git clone/push through a Hub-side proxy that handles auth.
-
-**Why rejected:**
-- Massive bandwidth and latency implications.
-- Breaks standard git tooling inside the agent.
-- Over-engineered for the problem.
+**Why rejected:** Massive bandwidth/latency implications. Breaks standard git tooling. Over-engineered.
 
 ---
 
@@ -771,10 +671,10 @@ Instead of giving agents tokens, route all git clone/push through a Hub-side pro
 
 The GitHub App private key is the most sensitive credential in this system. It can mint tokens for any installation of the app.
 
-- **At rest**: Stored on the Hub server's filesystem or in a cloud secret manager (GCP SM, AWS SM). For BYOA, stored via Scion's encrypted secret storage (`scion hub secret set`).
+- **At rest**: Stored on the Hub server's filesystem or in a cloud secret manager (GCP SM, AWS SM). Never in the database.
 - **In transit**: Never leaves the Hub. Brokers and agents receive only installation tokens.
 - **Access**: Only the Hub server process reads the key. Filesystem permissions: `0600`, owned by the Hub service user.
-- **Rotation**: Supported via GitHub's multi-key feature. Use `scion hub secret update` for managed rotation (see §13).
+- **Rotation**: Supported via GitHub's multi-key feature (see §13).
 
 ### 15.2 Installation Token Scope
 
@@ -788,13 +688,13 @@ Even if an installation grants access to "all repositories" in an org, the minte
 
 Installation tokens are treated identically to PATs in the security model:
 - Injected as environment variables (same as today).
-- Never logged or written to disk by `sciontool` in plain text (existing sanitization applies). The token file at `SCION_GITHUB_TOKEN_PATH` has permissions `0600`.
+- Never logged by `sciontool` (existing sanitization applies). The token file at `SCION_GITHUB_TOKEN_PATH` has permissions `0600`.
 - 1-hour expiry limits blast radius of token theft.
 
 ### 15.4 Webhook Security
 
 The webhook endpoint (`/api/v1/webhooks/github`) validates all incoming payloads:
-- **Signature verification**: Using the webhook secret configured alongside the GitHub App (`X-Hub-Signature-256` header).
+- **Signature verification**: Using the `webhook_secret` from Hub config (`X-Hub-Signature-256` header).
 - **Event filtering**: Only processes `installation` and `installation_repositories` events; ignores all others.
 - **Rate limiting**: The webhook endpoint has its own rate limit to prevent abuse.
 
@@ -813,50 +713,44 @@ This is comparable to installing any third-party GitHub App (CI systems, code re
 
 ### Phase 1: Hub-Level App Configuration and Token Minting
 
-1. Add `GitHubAppConfig` to Hub server configuration (including `api_base_url` for GHES).
-2. Register `api_base_url` in Hub settings schema.
+1. Add `GitHubAppConfig` to Hub server configuration (including `api_base_url`, `webhook_secret`).
+2. Register all fields in Hub settings schema.
 3. Implement JWT generation from private key (`pkg/hub/githubapp/`).
 4. Implement installation token minting via GitHub API.
 5. Add Hub API: `GET /api/v1/github-app`, `PUT /api/v1/github-app`.
-6. Add `GitHubInstallation` model and store operations (with `status` field).
+6. Add `GitHubInstallation` model and store operations.
 7. Add Hub API: `GET/POST /api/v1/github-app/installations`.
 8. Unit tests for JWT generation and token exchange.
 
-### Phase 2: Grove Association, Permissions, and Secret Resolution
+### Phase 2: Installation Callback, Grove Association, and Secret Resolution
 
-1. Add `github_installation_id` and `github_permissions` to Grove model.
-2. Modify `scion hub grove create` to accept `--github-installation` and `--github-permissions` flags.
-3. Implement auto-discovery of installations for a given repo.
-4. Add Hub API: grove GitHub permissions endpoints.
-5. Integrate into secret resolution: when grove has installation, mint token with grove-specific permissions (or defaults).
-6. Transparent injection as `GITHUB_TOKEN` in agent environment.
-7. Integration tests: grove create → agent start → git clone with app token.
+1. Implement setup URL callback handler (`GET /github-app/setup`).
+2. Implement webhook endpoint (`POST /api/v1/webhooks/github`) with signature verification.
+3. Auto-match installations to groves by repo URL in both callback and webhook handlers.
+4. Add `github_installation_id` and `github_permissions` to Grove model.
+5. Add Hub API: grove GitHub installation and permissions endpoints.
+6. Implement auto-discovery fallback for `scion hub grove create`.
+7. Integrate into secret resolution: when grove has installation, mint token with grove-specific permissions (or defaults).
+8. Transparent injection as `GITHUB_TOKEN` in agent environment.
+9. Integration tests: app install callback → grove association → agent start → git clone.
 
 ### Phase 3: Token Refresh (Blended)
 
 1. Add Hub API: `POST /api/v1/agents/{id}/refresh-token`.
-2. Extend `sciontool` credential helper to call Hub for fresh tokens (git operations).
+2. Extend `sciontool` credential helper for on-demand token refresh (git operations).
 3. Add `sciontool` background token refresh loop (gh CLI / API operations).
-4. Add `SCION_GITHUB_APP_ENABLED`, `SCION_GITHUB_TOKEN_EXPIRY`, and `SCION_GITHUB_TOKEN_PATH` env vars.
-5. Test long-running agents with token refresh cycle across both git and gh CLI usage.
+4. Add `gh` wrapper script for fresh token injection.
+5. Add `SCION_GITHUB_APP_ENABLED`, `SCION_GITHUB_TOKEN_EXPIRY`, and `SCION_GITHUB_TOKEN_PATH` env vars.
+6. Test long-running agents with token refresh across git and gh CLI.
 
-### Phase 4: Webhooks and Installation Lifecycle
+### Phase 4: Web UI and Polish
 
-1. Add webhook endpoint: `POST /api/v1/webhooks/github`.
-2. Implement webhook signature verification.
-3. Handle installation created/deleted/suspended events.
-4. Public-facing detection: verify Hub external URL is reachable for webhook delivery.
-5. Graceful degradation when Hub is not public-facing (disable webhooks, warn in UI).
-6. Proactive notification to grove owners on installation revocation.
-
-### Phase 5: BYOA, Web UI, and Advanced Features
-
-1. Support user-scoped and grove-scoped GitHub App secrets (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`).
-2. Resolution hierarchy: grove app → user app → hub app → PAT.
-3. Commit attribution configuration (bot/custom/co-authored).
-4. Web UI: Hub admin page, grove settings tab (credential source, permissions, installation).
-5. Web UI: Grove creation flow with auto-discovery.
-6. Rate limit monitoring and warning system.
+1. Hub admin page: GitHub App configuration, install link, installation list.
+2. Grove settings tab: credential source, permissions, "Install App" button.
+3. Grove creation flow with auto-discovery.
+4. Commit attribution configuration (bot/custom/co-authored).
+5. Rate limit monitoring and warning system.
+6. Documentation and key rotation runbook.
 
 ---
 
@@ -864,60 +758,33 @@ This is comparable to installing any third-party GitHub App (CI systems, code re
 
 ### 17.1 Token File Security in Shared Containers
 
-**Question:** The background refresh loop writes fresh tokens to `/tmp/.github-token`. In environments where the container filesystem might be inspected (e.g., debugging, shared volumes), is this an acceptable trade-off?
+**Question:** The background refresh loop writes fresh tokens to `/tmp/.github-token`. Is this an acceptable trade-off vs environment-variable-only tokens?
 
-**Consideration:** The file has `0600` permissions and the token expires in 1 hour. This matches the security posture of `GITHUB_TOKEN` being available as an environment variable (which is also readable by any process in the container). However, environment variables are ephemeral while files persist until deleted.
+**Consideration:** The file has `0600` permissions and the token expires in 1 hour — same security posture as `GITHUB_TOKEN` in the environment. `sciontool` should clean up the token file on agent exit.
 
-**Action needed:** Decide whether `sciontool` should clean up the token file on agent exit, and whether an in-memory alternative (e.g., Unix domain socket) is worth the complexity.
+### 17.2 Webhook Reachability Validation
 
-### 17.2 Webhook Endpoint and Network Topology
+**Question:** Beyond the admin-asserted `webhooks_enabled` flag, should the Hub validate webhook reachability during setup?
 
-**Question:** How does the Hub reliably determine whether its webhook endpoint is publicly reachable?
+**Leaning:** Yes — register a test webhook with GitHub during app configuration in the Web UI and check for the ping event. This provides a concrete validation step without relying on external probing.
 
-**Consideration:** Checking `hub.external_url` against DNS may not account for NAT, proxies, or firewall rules. Options:
-- (a) Rely on the admin to declare `webhooks.enabled: true` in config (manual assertion).
-- (b) Register a test webhook with GitHub and check for the ping event.
-- (c) Use an external service to probe the endpoint.
+### 17.3 Setup URL vs Webhook Race Condition
 
-**Leaning:** (a) as the simplest, with (b) as a validation step during GitHub App setup in the Web UI.
+**Question:** The setup URL redirect and the `installation.created` webhook may arrive in any order (or one may fail). Both attempt to register the installation and match groves.
 
-### 17.3 gh CLI Token Refresh Mechanism
+**Consideration:** Both handlers must be idempotent. The installation record uses `installation_id` as a natural key — creating an already-existing installation is a no-op. Grove matching is also idempotent. This should be safe but needs explicit testing.
 
-**Question:** The `gh` CLI reads `GITHUB_TOKEN` from the environment at process start. If an agent runs `gh pr create` after the initial token has expired, it will use the stale env var. How do we ensure `gh` picks up the refreshed token?
+### 17.4 Token Permissions Drift
 
-**Consideration:** Options:
-- (a) Wrapper script (`/usr/local/bin/gh`) that reads from the token file before delegating to the real `gh`.
-- (b) Configure `gh` to use `GITHUB_TOKEN` from a file via `gh auth login --with-token < /tmp/.github-token` at refresh time.
-- (c) Set `GH_TOKEN` to a shell command substitution (not supported by `gh` natively).
+**Question:** What happens when the GitHub App's registered permissions are reduced, but groves still request those permissions?
 
-**Leaning:** (a) — a lightweight wrapper is the most reliable approach and already fits the `sciontool` pattern of injecting tooling into the agent container.
+**Consideration:** GitHub rejects the token request. The Hub should detect this failure, surface a clear error, and periodically sync the app's current permissions from `GET /app` to validate grove configurations proactively.
 
-### 17.4 Multiple Installations for Same Org
+### 17.5 Installation Repo Changes After Setup
 
-**Question:** If an organization has multiple GitHub App installations (e.g., from BYOA where two users registered separate apps on the same org), how does auto-discovery resolve conflicts?
+**Question:** An org admin can modify which repos the GitHub App has access to at any time (via GitHub settings). If they remove a repo that a grove targets, token minting will fail.
 
-**Consideration:** Auto-discovery lists all installations that can access the target repo. If multiple installations match, the system needs a disambiguation strategy:
-- Prefer the Hub-level app installation over BYOA installations.
-- If multiple BYOA installations match, require the user to specify explicitly.
-- The resolution hierarchy (§3.4) already handles this at the credential level, but auto-discovery needs to be aware of it.
-
-### 17.5 Token Permissions Drift
-
-**Question:** What happens when the GitHub App's registered permissions are reduced (e.g., admin removes "Issues: write" from the app), but groves still request that permission in their grove-level settings?
-
-**Consideration:** GitHub will reject the token request if it includes permissions the app doesn't have. The Hub should:
-- Detect this failure and surface a clear error.
-- Periodically sync the app's current permission set from GitHub (`GET /app`) and validate grove configurations against it.
-- The Web UI's permission selector should only offer permissions the app currently has.
-
-### 17.6 Webhook Event Ordering and Idempotency
-
-**Question:** GitHub does not guarantee webhook delivery order or exactly-once delivery. How should the Hub handle duplicate or out-of-order events?
-
-**Consideration:** The `GitHubInstallation` model has a `Status` field. State transitions should be idempotent:
-- A duplicate "created" event for an already-active installation is a no-op.
-- A "deleted" event for an already-deleted installation is a no-op.
-- Events should be processed with the GitHub delivery ID to detect duplicates.
+**Consideration:** The `installation_repositories.removed` webhook event handles this if webhooks are enabled. Without webhooks, the failure surfaces at token minting time. The Hub should surface a clear error: "Repository 'acme/widgets' is no longer accessible to the GitHub App installation."
 
 ---
 
@@ -926,6 +793,7 @@ This is comparable to installing any third-party GitHub App (CI systems, code re
 - **GitHub Docs**: [About GitHub Apps](https://docs.github.com/en/apps/overview)
 - **GitHub Docs**: [Authenticating as a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/about-authentication-with-a-github-app)
 - **GitHub Docs**: [Creating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
+- **GitHub Docs**: [GitHub App setup URL](https://docs.github.com/en/apps/creating-github-apps/setting-up-a-github-app/about-the-setup-url)
 - **Scion Design**: `.design/hosted/git-groves.md` — Current PAT-based git authentication
 - **Scion Design**: `.design/hosted/secrets-gather.md` — Secret provisioning and resolution
 - **Scion Design**: `.design/agent-credentials.md` — Agent credential management
