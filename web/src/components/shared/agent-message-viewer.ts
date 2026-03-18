@@ -83,6 +83,7 @@ export class ScionAgentMessageViewer extends LitElement {
   // Compose state
   @state() private composeText = '';
   @state() private composeInterrupt = false;
+  @state() private composePlain = true;
   @state() private sending = false;
   @state() private sendError: string | null = null;
 
@@ -467,13 +468,16 @@ export class ScionAgentMessageViewer extends LitElement {
     this.sendError = null;
 
     try {
+      const body = this.composePlain
+        ? { message: text, interrupt: this.composeInterrupt }
+        : {
+            structured_message: { msg: text, plain: false },
+            interrupt: this.composeInterrupt,
+          };
       const res = await apiFetch(`/api/v1/agents/${this.agentId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          interrupt: this.composeInterrupt,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         this.sendError = await extractApiError(res, 'Failed to send message');
@@ -549,6 +553,14 @@ export class ScionAgentMessageViewer extends LitElement {
           ${this.sendError ? html`<div class="send-error">${this.sendError}</div>` : nothing}
         </div>
         <div class="compose-actions">
+          <label>
+            <sl-checkbox
+              size="small"
+              ?checked=${this.composePlain}
+              @sl-change=${(e: Event) => { this.composePlain = (e.target as HTMLInputElement).checked; }}
+            ></sl-checkbox>
+            Plain
+          </label>
           <label>
             <sl-checkbox
               size="small"
