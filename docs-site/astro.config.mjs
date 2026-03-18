@@ -68,6 +68,7 @@ export default defineConfig({
 					label: 'Hub User Guide',
 					items: [
 						{ label: 'Connecting to Hub', slug: 'hub-user/hosted-user' },
+						{ label: 'Personal Access Tokens', slug: 'hub-user/personal-access-tokens' },
 						{ label: 'Git-Based Groves', slug: 'hub-user/git-groves' },
 						{ label: 'Web Dashboard', slug: 'hub-user/dashboard' },
 						{ label: 'Secret Management', slug: 'hub-user/secrets' },
