@@ -2247,6 +2247,7 @@ func (s *Server) listGroves(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	filter := store.GroveFilter{
+		OwnerID:         query.Get("ownerId"),
 		Visibility:      query.Get("visibility"),
 		GitRemotePrefix: util.NormalizeGitRemote(query.Get("gitRemote")),
 		BrokerID:        query.Get("brokerId"),
@@ -2269,6 +2270,9 @@ func (s *Server) listGroves(w http.ResponseWriter, r *http.Request) {
 		writeErrorFromErr(w, err, "")
 		return
 	}
+
+	// Enrich owner display names
+	s.enrichGroveOwnerNames(ctx, result.Items)
 
 	// Compute per-item and scope capabilities
 	identity := GetIdentityFromContext(ctx)
@@ -3657,6 +3661,17 @@ func (s *Server) getGrove(w http.ResponseWriter, r *http.Request, id string) {
 	s.createGroveGroup(ctx, grove)
 	s.createGroveMembersGroupAndPolicy(ctx, grove)
 
+	// Enrich owner display name
+	if grove.OwnerID != "" {
+		if user, err := s.store.GetUser(ctx, grove.OwnerID); err == nil {
+			if user.DisplayName != "" {
+				grove.OwnerName = user.DisplayName
+			} else {
+				grove.OwnerName = user.Email
+			}
+		}
+	}
+
 	resp := GroveWithCapabilities{Grove: *grove}
 	if identity := GetIdentityFromContext(ctx); identity != nil {
 		resp.Cap = s.authzService.ComputeCapabilities(ctx, identity, groveResource(grove))
@@ -4398,6 +4413,39 @@ func (s *Server) enrichBrokerCreatorNames(ctx context.Context, brokers []store.R
 	for i := range brokers {
 		if name, ok := nameMap[brokers[i].CreatedBy]; ok {
 			brokers[i].CreatedByName = name
+		}
+	}
+}
+
+// enrichGroveOwnerNames batch-resolves OwnerID UUIDs to display names for a slice of groves.
+func (s *Server) enrichGroveOwnerNames(ctx context.Context, groves []store.Grove) {
+	// Collect unique owner IDs
+	ownerIDs := make(map[string]struct{})
+	for _, g := range groves {
+		if g.OwnerID != "" {
+			ownerIDs[g.OwnerID] = struct{}{}
+		}
+	}
+	if len(ownerIDs) == 0 {
+		return
+	}
+
+	// Resolve each unique owner ID to a display name
+	nameMap := make(map[string]string, len(ownerIDs))
+	for id := range ownerIDs {
+		if user, err := s.store.GetUser(ctx, id); err == nil {
+			if user.DisplayName != "" {
+				nameMap[id] = user.DisplayName
+			} else {
+				nameMap[id] = user.Email
+			}
+		}
+	}
+
+	// Apply resolved names
+	for i := range groves {
+		if name, ok := nameMap[groves[i].OwnerID]; ok {
+			groves[i].OwnerName = name
 		}
 	}
 }

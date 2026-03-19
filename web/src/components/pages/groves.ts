@@ -69,6 +69,12 @@ export class ScionPageGroves extends LitElement {
   @state()
   private viewMode: ViewMode = 'grid';
 
+  /**
+   * Whether to show only groves owned by the current user
+   */
+  @state()
+  private showMineOnly = false;
+
   static override styles = [
     listPageStyles,
     css`
@@ -98,6 +104,14 @@ export class ScionPageGroves extends LitElement {
       .grove-stats .stat-value {
         font-size: 1.25rem;
         font-weight: 600;
+      }
+
+      .filter-toggle {
+        display: inline-flex;
+      }
+
+      .filter-toggle sl-button::part(base) {
+        font-size: 0.8125rem;
       }
     `,
   ];
@@ -196,20 +210,18 @@ export class ScionPageGroves extends LitElement {
     }
   }
 
-  private formatDate(dateString: string): string {
-    try {
-      const date = new Date(dateString);
-      return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
-        Math.round((date.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
-        'day'
-      );
-    } catch {
-      return dateString;
-    }
-  }
-
   private onViewChange(e: CustomEvent<{ view: ViewMode }>): void {
     this.viewMode = e.detail.view;
+  }
+
+  private toggleMineOnly(): void {
+    this.showMineOnly = !this.showMineOnly;
+  }
+
+  private get filteredGroves(): Grove[] {
+    if (!this.showMineOnly || !this.pageData?.user) return this.groves;
+    const userId = this.pageData.user.id;
+    return this.groves.filter((g) => g.ownerId === userId);
   }
 
   override render() {
@@ -217,6 +229,18 @@ export class ScionPageGroves extends LitElement {
       <div class="header">
         <h1>Groves</h1>
         <div class="header-actions">
+          ${this.pageData?.user ? html`
+            <div class="filter-toggle">
+              <sl-button
+                size="small"
+                variant=${this.showMineOnly ? 'primary' : 'default'}
+                @click=${this.toggleMineOnly}
+              >
+                <sl-icon slot="prefix" name="person"></sl-icon>
+                My Groves
+              </sl-button>
+            </div>
+          ` : nothing}
           <scion-view-toggle
             .view=${this.viewMode}
             storageKey="scion-view-groves"
@@ -266,7 +290,18 @@ export class ScionPageGroves extends LitElement {
       return this.renderEmptyState();
     }
 
-    return this.viewMode === 'grid' ? this.renderGrid() : this.renderTable();
+    const groves = this.filteredGroves;
+    if (groves.length === 0) {
+      return html`
+        <div class="empty-state">
+          <sl-icon name="person"></sl-icon>
+          <h2>No Groves Found</h2>
+          <p>You don't own any groves yet.</p>
+        </div>
+      `;
+    }
+
+    return this.viewMode === 'grid' ? this.renderGrid(groves) : this.renderTable(groves);
   }
 
   private renderEmptyState() {
@@ -290,9 +325,9 @@ export class ScionPageGroves extends LitElement {
     `;
   }
 
-  private renderGrid() {
+  private renderGrid(groves: Grove[]) {
     return html`
-      <div class="resource-grid">${this.groves.map((grove) => this.renderGroveCard(grove))}</div>
+      <div class="resource-grid">${groves.map((grove) => this.renderGroveCard(grove))}</div>
     `;
   }
 
@@ -331,9 +366,9 @@ export class ScionPageGroves extends LitElement {
             <span class="stat-value">${grove.agentCount}</span>
           </div>
           <div class="stat">
-            <span class="stat-label">Updated</span>
+            <span class="stat-label">Owner</span>
             <span class="stat-value" style="font-size: 0.875rem; font-weight: 500;">
-              ${this.formatDate(grove.updatedAt)}
+              ${grove.ownerName || '—'}
             </span>
           </div>
         </div>
@@ -341,7 +376,7 @@ export class ScionPageGroves extends LitElement {
     `;
   }
 
-  private renderTable() {
+  private renderTable(groves: Grove[]) {
     return html`
       <div class="resource-table-container">
         <table>
@@ -350,11 +385,11 @@ export class ScionPageGroves extends LitElement {
               <th>Name</th>
               <th>Path / Remote</th>
               <th>Agents</th>
-              <th class="hide-mobile">Updated</th>
+              <th class="hide-mobile">Owner</th>
             </tr>
           </thead>
           <tbody>
-            ${this.groves.map((grove) => this.renderGroveRow(grove))}
+            ${groves.map((grove) => this.renderGroveRow(grove))}
           </tbody>
         </table>
       </div>
@@ -376,7 +411,7 @@ export class ScionPageGroves extends LitElement {
         <td class="mono-cell">${grove.gitRemote || grove.path || this.groveTypeConfig(grove).label}</td>
         <td>${grove.agentCount}</td>
         <td class="hide-mobile">
-          <span class="meta-text">${this.formatDate(grove.updatedAt)}</span>
+          <span class="meta-text">${grove.ownerName || '—'}</span>
         </td>
       </tr>
     `;

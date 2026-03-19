@@ -178,7 +178,8 @@ type Grove struct {
 	// Computed fields (not stored, populated on read)
 	AgentCount        int    `json:"agentCount,omitempty"`
 	ActiveBrokerCount int    `json:"activeBrokerCount,omitempty"`
-	GroveType         string `json:"groveType,omitempty"` // "git", "linked", or "hub-native"
+	GroveType         string `json:"groveType,omitempty"`          // "git", "linked", or "hub-native"
+	OwnerName         string `json:"ownerName,omitempty"`          // Enriched: resolved from OwnerID
 }
 
 // RuntimeBroker represents a compute node in the Hub database.

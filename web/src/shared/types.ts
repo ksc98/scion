@@ -135,6 +135,8 @@ export interface Grove {
   visibility?: string;
   labels?: Record<string, string>;
   defaultRuntimeBrokerId?: string;
+  ownerId?: string;
+  ownerName?: string;
   agentCount: number;
   createdAt: string;
   updatedAt: string;
