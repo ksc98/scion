@@ -17,9 +17,14 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"strings"
 
+	"cloud.google.com/go/compute/metadata"
 	"github.com/GoogleCloudPlatform/scion/pkg/k8s/api/v1alpha1"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -112,30 +117,87 @@ func NewClientWithContext(kubeconfigPath, contextName string) (*Client, error) {
 // plugin failures (e.g. gke-gcloud-auth-plugin) early with actionable errors
 // instead of letting them surface as confusing nested errors on the first real
 // API call.
+// Verify performs a lightweight API call (ServerVersion) to validate that
+// cluster connectivity and credentials work. If the kubeconfig uses an
+// exec-based credential plugin (e.g. gke-gcloud-auth-plugin) and it fails,
+// Verify attempts to fall back to GCE metadata-based auth when running on
+// a GCE instance.
 func (c *Client) Verify() error {
 	_, err := c.Clientset.Discovery().ServerVersion()
-	if err != nil {
-		errMsg := err.Error()
+	if err == nil {
+		return nil
+	}
 
-		// Detect exec-based credential plugin failures and provide guidance.
-		if strings.Contains(errMsg, "getting credentials: exec:") {
-			hint := "Kubernetes credential plugin failed. "
-			if strings.Contains(errMsg, "gke-gcloud-auth-plugin") {
-				hint += "The gke-gcloud-auth-plugin could not obtain credentials. " +
-					"Ensure the hub/broker process inherits the same environment as your shell " +
-					"(HOME, PATH, CLOUDSDK_CONFIG, GOOGLE_APPLICATION_CREDENTIALS). " +
-					"If running as a systemd service, verify these are set in the unit file. " +
-					"You can test with: gke-gcloud-auth-plugin --version"
-			} else {
-				hint += "Ensure the credential plugin is installed and the process environment " +
-					"includes the necessary variables (HOME, PATH, cloud SDK config)."
-			}
-			return fmt.Errorf("%s — underlying error: %w", hint, err)
-		}
+	errMsg := err.Error()
 
+	// Detect exec-based credential plugin failures.
+	if !strings.Contains(errMsg, "getting credentials: exec:") {
 		return fmt.Errorf("failed to connect to Kubernetes cluster: %w", err)
 	}
 
+	// On GCE, transparently fall back to metadata-based auth instead of
+	// requiring gcloud/exec plugins to be configured in the process env.
+	if metadata.OnGCE() {
+		slog.Info("Exec credential plugin failed, falling back to GCE metadata auth",
+			"original_error", errMsg)
+		if fallbackErr := c.fallbackToGCEAuth(); fallbackErr != nil {
+			return fmt.Errorf("exec credential plugin failed and GCE metadata auth fallback also failed: %v — original error: %w", fallbackErr, err)
+		}
+		return nil
+	}
+
+	hint := "Kubernetes credential plugin failed. "
+	if strings.Contains(errMsg, "gke-gcloud-auth-plugin") {
+		hint += "The gke-gcloud-auth-plugin could not obtain credentials. " +
+			"Ensure the hub/broker process inherits the same environment as your shell " +
+			"(HOME, PATH, CLOUDSDK_CONFIG, GOOGLE_APPLICATION_CREDENTIALS). " +
+			"If running as a systemd service, verify these are set in the unit file. " +
+			"You can test with: gke-gcloud-auth-plugin --version"
+	} else {
+		hint += "Ensure the credential plugin is installed and the process environment " +
+			"includes the necessary variables (HOME, PATH, cloud SDK config)."
+	}
+	return fmt.Errorf("%s — underlying error: %w", hint, err)
+}
+
+// fallbackToGCEAuth reconfigures the client to use GCE metadata-based
+// OAuth2 tokens instead of the exec-based credential plugin. This is the
+// standard auth method for services running on GCE/GKE infrastructure.
+func (c *Client) fallbackToGCEAuth() error {
+	ctx := context.Background()
+	ts, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return fmt.Errorf("failed to get default token source: %w", err)
+	}
+
+	newConfig := rest.CopyConfig(c.Config)
+	newConfig.ExecProvider = nil
+	newConfig.AuthProvider = nil
+	newConfig.BearerToken = ""
+	newConfig.BearerTokenFile = ""
+	newConfig.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		return &oauth2.Transport{Source: ts, Base: rt}
+	}
+
+	newClientset, err := kubernetes.NewForConfig(newConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create clientset with GCE auth: %w", err)
+	}
+
+	newDynamic, err := dynamic.NewForConfig(newConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client with GCE auth: %w", err)
+	}
+
+	// Verify the fallback actually works
+	if _, err := newClientset.Discovery().ServerVersion(); err != nil {
+		return fmt.Errorf("GCE metadata auth connected but cluster rejected credentials: %w", err)
+	}
+
+	slog.Info("Successfully authenticated to Kubernetes via GCE metadata")
+	c.Clientset = newClientset
+	c.dynamic = newDynamic
+	c.Config = newConfig
 	return nil
 }
 
