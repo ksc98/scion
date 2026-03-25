@@ -145,8 +145,11 @@ func run(cfg fswatcher.Config) error {
 		roots = append(roots, groveDirs...)
 	}
 
+	if len(roots) == 0 && groveDiscovery == nil {
+		return fmt.Errorf("no directories to watch (no --watch paths specified)")
+	}
 	if len(roots) == 0 {
-		return fmt.Errorf("no directories to watch (grove discovery found 0 directories and no --watch paths specified)")
+		log.Printf("no agent containers running yet for grove %q; waiting for containers to start", cfg.Grove)
 	}
 
 	if cfg.Debug {
