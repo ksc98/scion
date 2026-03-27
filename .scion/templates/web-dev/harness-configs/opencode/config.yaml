@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-harness: claude
-image: scion-claude:latest
+harness: opencode
+image: scion-opencode:latest
 user: scion

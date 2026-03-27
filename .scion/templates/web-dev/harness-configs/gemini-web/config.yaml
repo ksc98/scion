@@ -15,4 +15,3 @@
 harness: gemini
 image: scion-gemini:latest
 user: scion
-auth_selected_type: api-key

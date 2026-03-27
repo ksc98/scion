@@ -28,8 +28,8 @@
   "officialMarketplaceAutoInstallAttempted": true,
   "officialMarketplaceAutoInstalled": true,
   "bypassPermissionsModeAccepted": true,
-  "lastReleaseNotesSeen": "2.0.76",
   "effortCalloutDismissed": true,
+  "lastReleaseNotesSeen": "2.0.76",
   "mcpServers": {
     "chrome-devtools": {
       "type": "stdio",
@@ -38,5 +38,4 @@
       "env": {}
     }
   }
-
 }
