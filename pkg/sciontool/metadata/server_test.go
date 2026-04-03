@@ -145,6 +145,32 @@ func TestMetadataServer_ProjectID(t *testing.T) {
 	}
 }
 
+func TestMetadataServer_NumericProjectID(t *testing.T) {
+	port := freePort(t)
+	srv := New(Config{
+		Mode:      "block",
+		Port:      port,
+		ProjectID: "my-test-project",
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := srv.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+	time.Sleep(50 * time.Millisecond)
+
+	resp, body := metadataGet(t, port, "/computeMetadata/v1/project/numeric-project-id")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if body != "0" {
+		t.Fatalf("expected numeric-project-id to be \"0\", got %q", body)
+	}
+}
+
 func TestMetadataServer_BlockMode(t *testing.T) {
 	port := freePort(t)
 	srv := New(Config{

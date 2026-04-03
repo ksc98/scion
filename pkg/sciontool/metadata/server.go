@@ -246,7 +246,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, s.config.ProjectID)
 
 	case path == "project/numeric-project-id":
-		fmt.Fprint(w, "")
+		fmt.Fprint(w, "0")
 
 	case path == "instance/service-accounts/" || path == "instance/service-accounts":
 		s.handleServiceAccountList(w, r)
