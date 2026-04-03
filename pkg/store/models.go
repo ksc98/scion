@@ -682,6 +682,7 @@ const (
 	SecretTypeEnvironment = "environment" // Injected as environment variable (default)
 	SecretTypeVariable    = "variable"    // Written to ~/.scion/secrets.json for programmatic access
 	SecretTypeFile        = "file"        // Written to a file at the specified Target path
+	SecretTypeInternal    = "internal"    // Hub-internal infrastructure key; never projected into agent environments
 )
 
 // Scope constants for environment variables and secrets.

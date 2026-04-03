@@ -746,6 +746,7 @@ func (s *Server) ensureSigningKey(ctx context.Context, keyName string, existingK
 				input := &secret.SetSecretInput{
 					Name:        keyName,
 					Value:       val,
+					SecretType:  store.SecretTypeInternal,
 					Scope:       store.ScopeHub,
 					ScopeID:     hubID,
 					Description: fmt.Sprintf("Hub signing key for %s (synced from store)", keyName),
@@ -814,6 +815,7 @@ func (s *Server) ensureSigningKey(ctx context.Context, keyName string, existingK
 		input := &secret.SetSecretInput{
 			Name:        keyName,
 			Value:       encodedKey,
+			SecretType:  store.SecretTypeInternal,
 			Scope:       store.ScopeHub,
 			ScopeID:     hubID,
 			Description: fmt.Sprintf("Hub signing key for %s", keyName),
@@ -862,6 +864,7 @@ func (s *Server) persistSigningKey(ctx context.Context, keyName, encodedValue, h
 		EncryptedValue: encodedValue,
 		Scope:          store.ScopeHub,
 		ScopeID:        hubID,
+		SecretType:     store.SecretTypeInternal,
 		Description:    fmt.Sprintf("Hub signing key for %s", keyName),
 	}
 	_, err := s.store.UpsertSecret(ctx, sec)
