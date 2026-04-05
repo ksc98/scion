@@ -810,12 +810,19 @@ export class ScionGCPServiceAccountList extends LitElement {
     `;
   }
 
+  private extractProjectFromEmail(email: string): string {
+    const match = email.match(/@(.+)\.iam\.gserviceaccount\.com$/);
+    return match ? match[1] : '';
+  }
+
   private renderVerifyFailedDialog() {
+    const targetProject = this.extractProjectFromEmail(this.verifyFailedTargetEmail);
+    const projectFlag = targetProject ? ` \\\n  --project="${targetProject}"` : '';
     const gcloudCmd = this.verifyFailedHubEmail
       ? `gcloud iam service-accounts add-iam-policy-binding \\
   ${this.verifyFailedTargetEmail} \\
   --member="serviceAccount:${this.verifyFailedHubEmail}" \\
-  --role="roles/iam.serviceAccountTokenCreator"`
+  --role="roles/iam.serviceAccountTokenCreator"${projectFlag}`
       : '';
 
     return html`
