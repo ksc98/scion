@@ -76,6 +76,9 @@ Examples:
 
 			if strings.HasPrefix(recipient, "user:") {
 				userRecipient = recipient
+			} else if strings.Contains(recipient, "@") && !strings.HasPrefix(recipient, "agent:") {
+				// Bare email address — treat as user recipient
+				userRecipient = "user:" + recipient
 			} else {
 				// Strip optional "agent:" prefix for backwards compatibility
 				agentName = api.Slugify(strings.TrimPrefix(recipient, "agent:"))

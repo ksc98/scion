@@ -942,8 +942,8 @@ func (r *CommandRouter) cmdMessage(ctx context.Context, event *ChatEvent, args [
 	agentSlug := remaining[0]
 	messageText := strings.Join(remaining[1:], " ")
 
-	// Use the hub user email as sender so agents can address replies
-	msg := messages.NewInstruction(mapping.HubUserEmail, agentSlug, messageText)
+	// Use the hub user email with "user:" prefix so agents can address replies
+	msg := messages.NewInstruction("user:"+mapping.HubUserEmail, agentSlug, messageText)
 	if threadID != "" {
 		// Include thread ID as part of the message metadata
 		msg.Msg = fmt.Sprintf("[thread:%s] %s", threadID, msg.Msg)

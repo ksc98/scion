@@ -1795,8 +1795,47 @@ func (s *Server) handleAgentOutboundMessage(w http.ResponseWriter, r *http.Reque
 	// Resolve recipient: explicit takes precedence; implicit defaults to agent creator.
 	recipientID := req.RecipientID
 	recipient := req.Recipient
-	if recipientID == "" {
-		// Implicit: target the agent's owner/creator.
+
+	if recipientID == "" && recipient != "" {
+		// Explicit recipient string provided without an ID — resolve the user.
+		// Accept "user:<identifier>" or bare "<identifier>".
+		identifier := strings.TrimPrefix(recipient, "user:")
+
+		// Try email lookup first (identifier contains @).
+		if strings.Contains(identifier, "@") {
+			if u, err := s.store.GetUserByEmail(ctx, identifier); err == nil {
+				recipientID = u.ID
+				name := u.DisplayName
+				if name == "" {
+					name = u.Email
+				}
+				recipient = "user:" + name
+			}
+		}
+
+		// Fall back to display-name search if email lookup didn't match.
+		if recipientID == "" {
+			result, err := s.store.ListUsers(ctx, store.UserFilter{Search: identifier}, store.ListOptions{Limit: 1})
+			if err == nil && len(result.Items) == 1 {
+				u := result.Items[0]
+				recipientID = u.ID
+				name := u.DisplayName
+				if name == "" {
+					name = u.Email
+				}
+				recipient = "user:" + name
+			}
+		}
+
+		// Ensure the recipient string has the "user:" prefix even if
+		// resolution failed (best-effort delivery).
+		if !strings.HasPrefix(recipient, "user:") {
+			recipient = "user:" + recipient
+		}
+	}
+
+	if recipientID == "" && recipient == "" {
+		// No explicit recipient — default to the agent's owner/creator.
 		recipientID = agent.OwnerID
 		if recipientID == "" {
 			recipientID = agent.CreatedBy
