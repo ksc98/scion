@@ -371,9 +371,17 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 	cmdLine := strings.Join(quotedArgs, " ")
 
 	// Build tmux command: create session with "agent" window running the harness,
-	// then add a "shell" window and switch back to the agent window.
+	// then add a "shell" window and switch back to the agent window. Keep the
+	// parent shell alive with a poll loop until the tmux session is destroyed.
+	//
+	// We deliberately do NOT use `attach-session` here as the keepalive: it
+	// would leave a permanent tmux client bound to the container's main TTY,
+	// which is fixed at the default 80x24 because nothing ever resizes it.
+	// With `window-size latest`, that phantom 80x24 client conflicts with the
+	// real client created when the user runs `scion attach`, locking the
+	// session to 80x24 and corrupting the screen when both clients coexist.
 	tmuxCmd := fmt.Sprintf(
-		"tmux new-session -d -s scion -n agent %s \\; new-window -t scion -n shell \\; select-window -t scion:agent \\; attach-session -t scion",
+		"tmux new-session -d -s scion -n agent %s \\; new-window -t scion -n shell \\; select-window -t scion:agent && while tmux has-session -t scion 2>/dev/null; do sleep 2; done",
 		cmdLine,
 	)
 

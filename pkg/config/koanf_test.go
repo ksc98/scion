@@ -371,6 +371,15 @@ hub:
 	if s.GroveID != "hub-level-id" {
 		t.Errorf("expected GroveID 'hub-level-id' (from hub.grove_id), got '%s'", s.GroveID)
 	}
+	// Regression: hub.grove_id must also populate Hub.GroveID so
+	// GetHubGroveID() returns the hub-side ID. Without this remap to the
+	// camelCase koanf tag, GetHubGroveID() returns "" and CompareAgents
+	// falls back to Settings.GroveID — which for git groves gets clobbered
+	// by the local grove-id marker file, causing the CLI to send the wrong
+	// ID and 404 against the hub.
+	if s.Hub == nil || s.Hub.GroveID != "hub-level-id" {
+		t.Errorf("expected Hub.GroveID 'hub-level-id', got %q", s.GetHubGroveID())
+	}
 }
 
 func TestLoadSettingsKoanfV1GroveIDFromEnv(t *testing.T) {
@@ -397,6 +406,77 @@ func TestLoadSettingsKoanfV1GroveIDFromEnv(t *testing.T) {
 
 	if s.GroveID != "env-grove-uuid" {
 		t.Errorf("expected GroveID 'env-grove-uuid' from env var, got '%s'", s.GroveID)
+	}
+}
+
+// TestLoadSettingsKoanfV1HubGroveIDSurvivesGitGroveMarker reproduces the exact
+// scenario that caused CompareAgents to send the wrong grove ID to the hub:
+// a git grove with a grove-id marker file (which ReadGroveID() restores into
+// top-level grove_id) and a hub.grove_id pointing at a different hub-side ID.
+// Without the camelCase remap (hub.grove_id → hub.groveId), GetHubGroveID()
+// returned "" because Hub.GroveID stayed empty, the CLI fell back to
+// Settings.GroveID (= the local marker ID), and the hub returned 404 because
+// it indexes by the hub-assigned ID, not the local UUID v5.
+func TestLoadSettingsKoanfV1HubGroveIDSurvivesGitGroveMarker(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	// The grove path the caller passes (FindProjectRoot/etc resolves to here).
+	groveDir := filepath.Join(tmpDir, "blog-grove")
+	groveScionDir := filepath.Join(groveDir, ".scion")
+	if err := os.MkdirAll(groveScionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Grove-id marker file holds the local deterministic UUID. ReadGroveID()
+	// reads this in two places:
+	//   1. resolveEffectiveGrovePath → GetGroveConfigDir, which redirects the
+	//      settings.yaml lookup to ~/.scion/grove-configs/<name>__<id>/.scion/
+	//   2. The override block at the bottom of LoadSettingsKoanf, which puts
+	//      the local UUID back into top-level grove_id after the file load.
+	// Step 1 means the settings file MUST be written to the redirected path,
+	// not to groveScionDir directly — that was the gotcha that hid the bug
+	// behind a broken test.
+	const localID = "local-deterministic-uuid"
+	if err := os.WriteFile(filepath.Join(groveScionDir, "grove-id"), []byte(localID), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mirror the production layout: write settings.yaml to the redirected
+	// grove-configs path that GetGroveConfigDir resolves to.
+	cfgDir := GetGroveConfigDir(groveScionDir)
+	if cfgDir == "" {
+		t.Fatalf("GetGroveConfigDir(%q) returned empty", groveScionDir)
+	}
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	settingsYAML := `schema_version: "1"
+hub:
+  enabled: true
+  grove_id: "hub-side-id-from-server"
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "settings.yaml"), []byte(settingsYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := LoadSettingsKoanf(groveScionDir)
+	if err != nil {
+		t.Fatalf("LoadSettingsKoanf failed: %v", err)
+	}
+
+	// Local ID wins for top-level grove_id (this was already correct).
+	if s.GroveID != localID {
+		t.Errorf("expected top-level GroveID %q (from marker), got %q", localID, s.GroveID)
+	}
+
+	// Hub-side ID must be reachable via GetHubGroveID() — this is the
+	// regression check. Pre-fix this returned "".
+	if hgid := s.GetHubGroveID(); hgid != "hub-side-id-from-server" {
+		t.Errorf("expected GetHubGroveID() = 'hub-side-id-from-server', got %q", hgid)
 	}
 }
 

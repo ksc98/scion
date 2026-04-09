@@ -20,11 +20,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/GoogleCloudPlatform/scion/pkg/api"
 	"github.com/GoogleCloudPlatform/scion/pkg/storage"
 	"github.com/GoogleCloudPlatform/scion/pkg/store"
+	"gopkg.in/yaml.v3"
 )
 
 // maxTemplateFileSize is the maximum file size (in bytes) that can be read
@@ -281,6 +284,11 @@ func (s *Server) handleTemplateFileWrite(w http.ResponseWriter, r *http.Request,
 	// Recompute content hash
 	template.ContentHash = computeContentHash(template.Files)
 
+	// Extract template config from scion-agent.yaml when it's written
+	if isAgentConfigFile(filePath) {
+		updateTemplateConfigFromAgentYAML(template, content)
+	}
+
 	if err := s.store.UpdateTemplate(ctx, template); err != nil {
 		writeErrorFromErr(w, err, "")
 		return
@@ -394,6 +402,11 @@ func (s *Server) handleTemplateFileUpload(w http.ResponseWriter, r *http.Request
 				})
 			}
 
+			// Extract template config from scion-agent.yaml when it's uploaded
+			if isAgentConfigFile(relPath) {
+				updateTemplateConfigFromAgentYAML(template, data)
+			}
+
 			uploaded = append(uploaded, TemplateFileEntry{
 				Path:    relPath,
 				Size:    fileSize,
@@ -415,6 +428,60 @@ func (s *Server) handleTemplateFileUpload(w http.ResponseWriter, r *http.Request
 		Files: uploaded,
 		Hash:  template.ContentHash,
 	})
+}
+
+// isAgentConfigFile returns true if the path is a scion agent config file.
+func isAgentConfigFile(path string) bool {
+	return path == "scion-agent.yaml" || path == "scion-agent.yml" || path == "scion-agent.json"
+}
+
+// updateTemplateConfigFromAgentYAML parses scion-agent.yaml content and updates
+// the template's Config field in the database. This keeps the DB config in sync
+// with the file in storage.
+func updateTemplateConfigFromAgentYAML(template *store.Template, content []byte) {
+	var cfg api.ScionConfig
+	if err := yaml.Unmarshal(content, &cfg); err != nil {
+		slog.Warn("Failed to parse scion-agent.yaml for template config extraction",
+			"template", template.ID, "error", err)
+		return
+	}
+
+	if template.Config == nil {
+		template.Config = &store.TemplateConfig{}
+	}
+
+	// Map api.ScionConfig fields to store.TemplateConfig
+	if cfg.Image != "" {
+		template.Config.Image = cfg.Image
+	}
+	if cfg.Model != "" {
+		template.Config.Model = cfg.Model
+	}
+	if len(cfg.Env) > 0 {
+		template.Config.Env = cfg.Env
+	}
+	if cfg.Telemetry != nil {
+		template.Config.Telemetry = cfg.Telemetry
+	}
+
+	// Map kubernetes config
+	if cfg.Kubernetes != nil {
+		template.Config.Kubernetes = &store.KubernetesConfig{
+			RuntimeClassName:      cfg.Kubernetes.RuntimeClassName,
+			ServiceAccountName:    cfg.Kubernetes.ServiceAccountName,
+			ImagePullPolicy:       cfg.Kubernetes.ImagePullPolicy,
+			NodeSelector:          cfg.Kubernetes.NodeSelector,
+			Tolerations:           cfg.Kubernetes.Tolerations,
+			SharedDirStorageClass: cfg.Kubernetes.SharedDirStorageClass,
+			SharedDirSize:         cfg.Kubernetes.SharedDirSize,
+		}
+		if cfg.Kubernetes.Resources != nil {
+			template.Config.Kubernetes.Resources = &store.ResourceRequirements{
+				Requests: cfg.Kubernetes.Resources.Requests,
+				Limits:   cfg.Kubernetes.Resources.Limits,
+			}
+		}
+	}
 }
 
 // handleTemplateFileDelete removes a file from a template.

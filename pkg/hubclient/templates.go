@@ -15,9 +15,14 @@
 package hubclient
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"mime/multipart"
+	"net/http"
 	"net/url"
+	"path/filepath"
 	"time"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/apiclient"
@@ -58,6 +63,20 @@ type TemplateService interface {
 
 	// DownloadFile downloads a file from the given signed URL.
 	DownloadFile(ctx context.Context, url string) ([]byte, error)
+
+	// ListFiles returns the file manifest for a template via direct hub endpoint.
+	ListFiles(ctx context.Context, templateID string) (*TemplateFileListResponse, error)
+
+	// ReadFile returns the content of a single template file via direct hub endpoint.
+	ReadFile(ctx context.Context, templateID, filePath string) (*TemplateFileContentResponse, error)
+
+	// WriteFile writes content to a single template file via direct hub endpoint.
+	// The hub stores the file and updates the manifest + content hash atomically.
+	WriteFile(ctx context.Context, templateID, filePath, content string) (*TemplateFileWriteResponse, error)
+
+	// UploadFiles uploads multiple files via multipart POST to the hub.
+	// The hub stores all files and updates the manifest + content hash atomically.
+	UploadFiles(ctx context.Context, templateID string, files map[string][]byte) (*TemplateFileUploadResponse, error)
 }
 
 // templateService is the implementation of TemplateService.
@@ -160,6 +179,45 @@ type DownloadURLInfo struct {
 	URL  string `json:"url"`
 	Size int64  `json:"size"`
 	Hash string `json:"hash,omitempty"`
+}
+
+// TemplateFileListResponse is the response for listing template files directly.
+type TemplateFileListResponse struct {
+	Files      []TemplateFileEntry `json:"files"`
+	TotalSize  int64               `json:"totalSize"`
+	TotalCount int                 `json:"totalCount"`
+}
+
+// TemplateFileEntry is a single file in the template file listing.
+type TemplateFileEntry struct {
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"modTime"`
+	Mode    string `json:"mode"`
+}
+
+// TemplateFileContentResponse is the response for reading a template file directly.
+type TemplateFileContentResponse struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Size     int64  `json:"size"`
+	ModTime  string `json:"modTime"`
+	Encoding string `json:"encoding"`
+	Hash     string `json:"hash,omitempty"`
+}
+
+// TemplateFileWriteResponse is the response after writing a template file directly.
+type TemplateFileWriteResponse struct {
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	Hash    string `json:"hash"`
+	ModTime string `json:"modTime"`
+}
+
+// TemplateFileUploadResponse is the response after uploading template files directly.
+type TemplateFileUploadResponse struct {
+	Files []TemplateFileEntry `json:"files"`
+	Hash  string              `json:"hash"`
 }
 
 // List returns templates matching the filter criteria.
@@ -314,4 +372,69 @@ func (s *templateService) getTransferClient() *transfer.Client {
 		s.transferClient = transfer.NewClient(s.c.transport.HTTPClient)
 	}
 	return s.transferClient
+}
+
+// ListFiles returns the file manifest for a template via direct hub endpoint.
+func (s *templateService) ListFiles(ctx context.Context, templateID string) (*TemplateFileListResponse, error) {
+	resp, err := s.c.transport.Get(ctx, "/api/v1/templates/"+templateID+"/files", nil)
+	if err != nil {
+		return nil, err
+	}
+	return apiclient.DecodeResponse[TemplateFileListResponse](resp)
+}
+
+// ReadFile returns the content of a single template file via direct hub endpoint.
+func (s *templateService) ReadFile(ctx context.Context, templateID, filePath string) (*TemplateFileContentResponse, error) {
+	resp, err := s.c.transport.Get(ctx, "/api/v1/templates/"+templateID+"/files/"+filePath, nil)
+	if err != nil {
+		return nil, err
+	}
+	return apiclient.DecodeResponse[TemplateFileContentResponse](resp)
+}
+
+// WriteFile writes content to a single template file via direct hub endpoint.
+func (s *templateService) WriteFile(ctx context.Context, templateID, filePath, content string) (*TemplateFileWriteResponse, error) {
+	req := struct {
+		Content string `json:"content"`
+	}{
+		Content: content,
+	}
+	resp, err := s.c.transport.Put(ctx, "/api/v1/templates/"+templateID+"/files/"+filePath, req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return apiclient.DecodeResponse[TemplateFileWriteResponse](resp)
+}
+
+// UploadFiles uploads multiple files via multipart POST to the hub.
+func (s *templateService) UploadFiles(ctx context.Context, templateID string, files map[string][]byte) (*TemplateFileUploadResponse, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	for path, content := range files {
+		part, err := writer.CreateFormFile(path, filepath.Base(path))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create form file for %s: %w", path, err)
+		}
+		if _, err := part.Write(content); err != nil {
+			return nil, fmt.Errorf("failed to write content for %s: %w", path, err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		s.c.transport.BaseURL+"/api/v1/templates/"+templateID+"/files", body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := s.c.transport.Do(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return apiclient.DecodeResponse[TemplateFileUploadResponse](resp)
 }

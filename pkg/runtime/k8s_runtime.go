@@ -744,9 +744,18 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) (*corev
 		}
 	}
 	cmdLine := strings.Join(quotedArgs, " ")
-	// Create session with "agent" window running the harness, plus a "shell" window.
+	// Create session with "agent" window running the harness, plus a "shell"
+	// window. Then keep the parent shell alive with a poll loop until the
+	// tmux session goes away.
+	//
+	// We deliberately do NOT use `attach-session` here as the keepalive: that
+	// would leave a permanent tmux client bound to the pod's main container
+	// TTY (pts/0), which is fixed at 80x24 because k8s never resizes it.
+	// With `window-size latest`, that phantom 80x24 client conflicts with the
+	// real client created by `scion attach`, locking the session size and
+	// causing visual corruption when two clients of different sizes coexist.
 	tmuxCmd := fmt.Sprintf(
-		"tmux new-session -d -s scion -n agent %s \\; new-window -t scion -n shell \\; select-window -t scion:agent \\; attach-session -t scion",
+		"tmux new-session -d -s scion -n agent %s \\; new-window -t scion -n shell \\; select-window -t scion:agent && while tmux has-session -t scion 2>/dev/null; do sleep 2; done",
 		cmdLine,
 	)
 	// --- K8s Startup Gate ---
@@ -974,8 +983,13 @@ func (r *KubernetesRuntime) buildPod(namespace string, config RunConfig) (*corev
 		FSGroup: &hostGID,
 	}
 
-	// Determine image pull policy
-	pullPolicy := corev1.PullIfNotPresent
+	// Determine image pull policy. Default to Always so rolling a new
+	// image to a `:latest` tag actually reaches nodes with a stale cache
+	// — the old IfNotPresent default caused silent use of pre-multi-arch
+	// cached images on arm64 nodes (node's V8 JIT would then crash inside
+	// QEMU with "uncaught target signal 5"). Override via
+	// kubernetes.imagePullPolicy in settings if you need tighter behavior.
+	pullPolicy := corev1.PullAlways
 	if config.Kubernetes != nil && config.Kubernetes.ImagePullPolicy != "" {
 		switch config.Kubernetes.ImagePullPolicy {
 		case "Always":
@@ -1540,6 +1554,23 @@ func (r *KubernetesRuntime) List(ctx context.Context, labelFilter map[string]str
 		namespace = ""
 	}
 
+	// scion.grove_path is stored as a pod annotation, not a label, because
+	// its value is a filesystem path containing '/' which is invalid in k8s
+	// label values. Extract it from the filter, exclude it from the label
+	// selector, and apply it as an in-memory annotation filter below.
+	var grovePathFilter string
+	if gp, ok := labelFilter["scion.grove_path"]; ok {
+		grovePathFilter = gp
+		cleaned := make(map[string]string, len(labelFilter))
+		for k, v := range labelFilter {
+			if k == "scion.grove_path" {
+				continue
+			}
+			cleaned[k] = v
+		}
+		labelFilter = cleaned
+	}
+
 	var selector string
 	if len(labelFilter) > 0 {
 		var selectors []string
@@ -1565,6 +1596,18 @@ func (r *KubernetesRuntime) List(ctx context.Context, labelFilter map[string]str
 		// just in case the selector logic changes or is broader.
 		if _, ok := p.Labels["scion.name"]; !ok {
 			continue
+		}
+
+		// Post-filter by grove_path (stored as annotation, falling back to
+		// label for backwards compatibility with older pods).
+		if grovePathFilter != "" {
+			pgp := p.Annotations["scion.grove_path"]
+			if pgp == "" {
+				pgp = p.Labels["scion.grove_path"]
+			}
+			if pgp != grovePathFilter {
+				continue
+			}
 		}
 
 		status := string(p.Status.Phase)
@@ -1615,31 +1658,19 @@ func (r *KubernetesRuntime) List(ctx context.Context, labelFilter map[string]str
 	return agents, nil
 }
 
+// GetLogs returns the contents of the agent's tmux pane (full scrollback).
+// Pod stdout is sciontool init noise — the actually-useful "what is the
+// agent doing" output lives inside the tmux session, so we exec into the
+// pod and capture the pane via tmux.
 func (r *KubernetesRuntime) GetLogs(ctx context.Context, id string) (string, error) {
-	namespace := r.DefaultNamespace
-	podName := id
-
-	if strings.Contains(id, "/") {
-		parts := strings.SplitN(id, "/", 2)
-		namespace = parts[0]
-		podName = parts[1]
-	} else {
-		namespace = r.resolveNamespace(ctx, podName)
+	// Try reading agent.log from inside the pod first (works even after
+	// the harness exits and the tmux window closes).
+	if logs, err := r.Exec(ctx, id, []string{"cat", "/home/scion/agent.log"}); err == nil {
+		return logs, nil
 	}
 
-	req := r.Client.Clientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{})
-	podLogs, err := req.Stream(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer podLogs.Close()
-
-	data, err := io.ReadAll(podLogs)
-	if err != nil {
-		return "", err
-	}
-
-	return string(data), nil
+	// Fall back to tmux capture (works while harness is still running).
+	return r.Exec(ctx, id, []string{"tmux", "capture-pane", "-t", "scion:agent", "-p", "-S", "-"})
 }
 
 func (r *KubernetesRuntime) Attach(ctx context.Context, id string) error {

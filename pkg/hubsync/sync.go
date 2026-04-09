@@ -367,7 +367,33 @@ func EnsureHubReady(grovePath string, opts EnsureHubReadyOptions) (*HubContext, 
 					// No ID match - ask user what to do
 					baseSlug := api.Slugify(groveName)
 					nextSlug := NextSlugFromMatches(baseSlug, matches)
-					choice, selectedID := ShowMatchingGrovesPrompt(groveName, matches, nextSlug, opts.AutoConfirm)
+
+					// Auto-link when the local repo's origin remote matches
+					// exactly one hub grove's remote. Skips the interactive
+					// prompt for the unambiguous case (single grove name +
+					// matching git remote) while still prompting on ambiguity
+					// or when remotes differ.
+					var choice GroveChoice
+					var selectedID string
+					autoLinked := false
+					if localRemote := util.NormalizeGitRemote(util.GetGitRemoteDir(resolvedPath)); localRemote != "" {
+						var remoteMatches []GroveMatch
+						for _, m := range matches {
+							if util.NormalizeGitRemote(m.GitRemote) == localRemote {
+								remoteMatches = append(remoteMatches, m)
+							}
+						}
+						if len(remoteMatches) == 1 {
+							choice = GroveChoiceLink
+							selectedID = remoteMatches[0].ID
+							autoLinked = true
+							fmt.Printf("Auto-linking to existing grove '%s' (ID: %s, remote: %s)\n",
+								remoteMatches[0].Name, remoteMatches[0].ID, remoteMatches[0].GitRemote)
+						}
+					}
+					if !autoLinked {
+						choice, selectedID = ShowMatchingGrovesPrompt(groveName, matches, nextSlug, opts.AutoConfirm)
+					}
 					switch choice {
 					case GroveChoiceCancel:
 						return nil, fmt.Errorf("registration cancelled")

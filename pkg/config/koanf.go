@@ -100,50 +100,31 @@ func LoadSettingsKoanf(grovePath string) (*Settings, error) {
 		return key
 	}), nil)
 
-	// Normalize v1 settings keys to legacy keyspace.
-	// In v1 format, grove_id is stored as hub.grove_id (snake_case), but the
-	// legacy Settings struct expects it at the top level (grove_id). The
-	// HubClientConfig struct uses koanf tag "groveId" (camelCase), so the
-	// v1 key hub.grove_id doesn't match either location without remapping.
-	// Always remap (unconditionally) because after the koanf merge chain,
-	// hub.grove_id reflects the most specific (grove-level) value and must
-	// take precedence over any top-level grove_id inherited from global.
-	if k.Exists("hub.grove_id") {
-		_ = k.Load(confmap.Provider(map[string]interface{}{
-			"grove_id": k.String("hub.grove_id"),
-		}, "."), nil)
-	}
+	// Normalize v1 settings keys to legacy keyspace. See normalizeV1HubKeys
+	// for the full mapping table — most importantly, hub.grove_id is fanned
+	// out to BOTH top-level grove_id AND hub.groveId so that GetHubGroveID()
+	// can read it via the legacy camelCase koanf tag. Without populating
+	// hub.groveId, Hub.GroveID stays empty and CompareAgents falls back to
+	// Settings.GroveID — which for git groves gets overwritten below with
+	// the local deterministic UUID v5, causing the CLI to send the wrong ID
+	// to the hub and 404.
+	normalizeV1HubKeys(k)
 
 	// For git groves, the grove_id is stored in a grove-id file inside the
 	// .scion directory rather than in the settings file. Read it here so that
 	// it overrides any grove_id inherited from global settings. The original
 	// grovePath points to the .scion directory (before resolveEffectiveGrovePath
 	// redirects to the external config dir).
+	//
+	// NOTE: this only overwrites top-level grove_id (the local deterministic
+	// ID); hub.groveId (the hub-side ID set by normalizeV1HubKeys above) is
+	// preserved so GetHubGroveID() still returns the hub-side value.
 	if grovePath != "" && grovePath != globalDir {
 		if groveID, err := ReadGroveID(grovePath); err == nil && groveID != "" {
 			_ = k.Load(confmap.Provider(map[string]interface{}{
 				"grove_id": groveID,
 			}, "."), nil)
 		}
-	}
-
-	// In v1 format, broker identity fields are stored under server.broker.*
-	// (snake_case), but the legacy Settings struct expects them at hub.brokerId
-	// (camelCase). Remap so LoadSettingsKoanf produces correct HubClientConfig.
-	if k.Exists("server.broker.broker_id") && !k.Exists("hub.brokerId") {
-		_ = k.Load(confmap.Provider(map[string]interface{}{
-			"hub.brokerId": k.String("server.broker.broker_id"),
-		}, "."), nil)
-	}
-	if k.Exists("server.broker.broker_token") && !k.Exists("hub.brokerToken") {
-		_ = k.Load(confmap.Provider(map[string]interface{}{
-			"hub.brokerToken": k.String("server.broker.broker_token"),
-		}, "."), nil)
-	}
-	if k.Exists("server.broker.broker_nickname") && !k.Exists("hub.brokerNickname") {
-		_ = k.Load(confmap.Provider(map[string]interface{}{
-			"hub.brokerNickname": k.String("server.broker.broker_nickname"),
-		}, "."), nil)
 	}
 
 	// Unmarshal into Settings struct
@@ -170,6 +151,13 @@ func LoadSettingsFromDir(dir string) (*Settings, error) {
 	if err := loadSettingsFile(k, dir); err != nil {
 		return nil, err
 	}
+	// Apply the same v1 → legacy normalization as LoadSettingsKoanf so that
+	// callers that read isolated grove settings (e.g. cmd/hub.go's link flow
+	// at line 2181) can correctly observe Hub.GroveID. Without this, files
+	// written in v1 snake_case format leave Hub.GroveID empty, and callers
+	// fall back to Settings.GroveID — which for git groves is the local
+	// deterministic UUID v5, not the hub-assigned ID.
+	normalizeV1HubKeys(k)
 	settings := &Settings{
 		Runtimes:  make(map[string]RuntimeConfig),
 		Harnesses: make(map[string]HarnessConfig),
@@ -179,6 +167,40 @@ func LoadSettingsFromDir(dir string) (*Settings, error) {
 		return nil, err
 	}
 	return settings, nil
+}
+
+// normalizeV1HubKeys remaps v1 snake_case hub keys to the legacy camelCase
+// keyspace expected by the Settings struct. Specifically:
+//   - hub.grove_id   → grove_id (top-level legacy field) AND hub.groveId
+//   - server.broker.broker_id      → hub.brokerId (when not already set)
+//   - server.broker.broker_token   → hub.brokerToken (when not already set)
+//   - server.broker.broker_nickname → hub.brokerNickname (when not already set)
+//
+// Both LoadSettingsKoanf and LoadSettingsFromDir must apply this so isolated
+// grove reads behave consistently with merged-chain reads.
+func normalizeV1HubKeys(k *koanf.Koanf) {
+	if k.Exists("hub.grove_id") {
+		hubGroveID := k.String("hub.grove_id")
+		_ = k.Load(confmap.Provider(map[string]interface{}{
+			"grove_id":    hubGroveID,
+			"hub.groveId": hubGroveID,
+		}, "."), nil)
+	}
+	if k.Exists("server.broker.broker_id") && !k.Exists("hub.brokerId") {
+		_ = k.Load(confmap.Provider(map[string]interface{}{
+			"hub.brokerId": k.String("server.broker.broker_id"),
+		}, "."), nil)
+	}
+	if k.Exists("server.broker.broker_token") && !k.Exists("hub.brokerToken") {
+		_ = k.Load(confmap.Provider(map[string]interface{}{
+			"hub.brokerToken": k.String("server.broker.broker_token"),
+		}, "."), nil)
+	}
+	if k.Exists("server.broker.broker_nickname") && !k.Exists("hub.brokerNickname") {
+		_ = k.Load(confmap.Provider(map[string]interface{}{
+			"hub.brokerNickname": k.String("server.broker.broker_nickname"),
+		}, "."), nil)
+	}
 }
 
 // loadSettingsFile loads settings from a directory, preferring YAML over JSON

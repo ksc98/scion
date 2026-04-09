@@ -778,7 +778,17 @@ func (s *Server) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle actions
+	// Handle GET-based actions before the POST-only action gate.
+	if action == "logs" {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			MethodNotAllowed(w)
+			return
+		}
+		s.getLogs(w, r, id, groveID)
+		return
+	}
+
+	// Handle remaining actions (all POST)
 	if action != "" {
 		s.handleAgentAction(w, r, id, groveID, action)
 		return
@@ -1559,6 +1569,23 @@ func (s *Server) extractRequiredEnvKeys(req CreateAgentRequest) ([]string, map[s
 			for k, v := range req.ResolvedEnv {
 				if v != "" {
 					resolvedEnvKeys[k] = struct{}{}
+				}
+			}
+			// Hub-stored env secrets (e.g. CLAUDE_CODE_OAUTH_TOKEN set via
+			// `scion hub secret set`) arrive on req.ResolvedSecrets, not
+			// req.ResolvedEnv. Without merging them here, the detector
+			// misses them and falls through to api-key, which then demands
+			// ANTHROPIC_API_KEY even when the user has a valid OAuth token
+			// in the secret store.
+			for _, sec := range req.ResolvedSecrets {
+				if sec.Type == "environment" || sec.Type == "" {
+					target := sec.Target
+					if target == "" {
+						target = sec.Name
+					}
+					if target != "" {
+						resolvedEnvKeys[target] = struct{}{}
+					}
 				}
 			}
 			if detected := harness.DetectAuthTypeFromEnvVars(harnessType, resolvedEnvKeys); detected != "" {

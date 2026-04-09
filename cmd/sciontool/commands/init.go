@@ -1004,11 +1004,14 @@ func gitCloneWorkspace(uid, gid int, agentHome string) error {
 
 	// Ensure the workspace directory is owned by the target user. The
 	// directory may have been created on the host by a root broker process
-	// and bind-mounted into the container as root-owned.
-	if uid > 0 {
-		if err := os.Chown(workspacePath, uid, gid); err != nil {
-			log.Error("Failed to chown workspace to UID=%d GID=%d: %v", uid, gid, err)
-		}
+	// and bind-mounted into the container as root-owned. We always chown
+	// (even when uid==0) because in some k8s setups the workspace is created
+	// with a non-root SecurityContext UID and then sciontool ends up
+	// running as root after the UID adjustment — git would then reject the
+	// directory with "fatal: detected dubious ownership in repository at
+	// '/workspace'" because the on-disk owner doesn't match the caller.
+	if err := os.Chown(workspacePath, uid, gid); err != nil {
+		log.Error("Failed to chown workspace to UID=%d GID=%d: %v", uid, gid, err)
 	}
 
 	token := os.Getenv("GITHUB_TOKEN")
@@ -1025,7 +1028,19 @@ func gitCloneWorkspace(uid, gid int, agentHome string) error {
 	// Helper to configure a git command: run as the scion user and disable
 	// interactive credential prompts so git fails immediately instead of
 	// hanging when authentication is required but no token is available.
+	//
+	// We pass `-c safe.directory=*` to every git command as a belt-and-
+	// suspenders against the dubious-ownership check: even after the chown
+	// above, race conditions or volume drivers that lazily propagate
+	// ownership can leave git unhappy until the next sync. The wildcard
+	// is scoped to this single process tree (it's an in-memory `-c`
+	// override, not a persistent gitconfig change), so it doesn't relax
+	// security for anything outside the clone path.
 	setupGitCmd := func(cmd *exec.Cmd) {
+		// Insert "-c safe.directory=*" right after the "git" arg.
+		if len(cmd.Args) > 0 && filepath.Base(cmd.Args[0]) == "git" {
+			cmd.Args = append([]string{cmd.Args[0], "-c", "safe.directory=*"}, cmd.Args[1:]...)
+		}
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 		if uid > 0 {
 			cmd.SysProcAttr = &syscall.SysProcAttr{

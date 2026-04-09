@@ -903,34 +903,34 @@ func pullTemplateFromHubMatch(hubCtx *HubContext, match *TemplateMatch, toPath s
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	// Request download URLs
-	fmt.Printf("Requesting download URLs for template '%s'...\n", name)
-	downloadResp, err := hubCtx.Client.Templates().RequestDownloadURLs(ctx, template.ID)
+	// List files in template
+	fmt.Printf("Fetching file list for template '%s'...\n", name)
+	listResp, err := hubCtx.Client.Templates().ListFiles(ctx, template.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get download URLs: %w", err)
+		return fmt.Errorf("failed to list template files: %w", err)
 	}
 
-	// Download files
-	fmt.Printf("Downloading %d files to %s...\n", len(downloadResp.Files), destPath)
-	for _, fileInfo := range downloadResp.Files {
-		filePath := filepath.Join(destPath, filepath.FromSlash(fileInfo.Path))
+	// Download files directly from hub
+	fmt.Printf("Downloading %d files to %s...\n", len(listResp.Files), destPath)
+	for _, entry := range listResp.Files {
+		filePath := filepath.Join(destPath, filepath.FromSlash(entry.Path))
 
 		// Create parent directories
 		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-			return fmt.Errorf("failed to create directory for %s: %w", fileInfo.Path, err)
+			return fmt.Errorf("failed to create directory for %s: %w", entry.Path, err)
 		}
 
-		// Download file content
-		content, err := hubCtx.Client.Templates().DownloadFile(ctx, fileInfo.URL)
-		if err != nil {
-			return fmt.Errorf("failed to download %s: %w", fileInfo.Path, err)
+		// Read file content directly from hub
+		fileResp, readErr := hubCtx.Client.Templates().ReadFile(ctx, template.ID, entry.Path)
+		if readErr != nil {
+			return fmt.Errorf("failed to read %s: %w", entry.Path, readErr)
 		}
 
 		// Write file
-		if err := os.WriteFile(filePath, content, 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", fileInfo.Path, err)
+		if err := os.WriteFile(filePath, []byte(fileResp.Content), 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", entry.Path, err)
 		}
-		fmt.Printf("  Downloaded: %s\n", fileInfo.Path)
+		fmt.Printf("  Downloaded: %s\n", entry.Path)
 	}
 
 	if isJSONOutput() {
@@ -942,7 +942,7 @@ func pullTemplateFromHubMatch(hubCtx *HubContext, match *TemplateMatch, toPath s
 				"name":        name,
 				"id":          template.ID,
 				"destination": destPath,
-				"filesCount":  len(downloadResp.Files),
+				"filesCount":  len(listResp.Files),
 			},
 		})
 	}
@@ -970,15 +970,6 @@ func syncTemplateToHub(hubCtx *HubContext, name, localPath, scope, harnessType s
 		return fmt.Errorf("failed to scan template files: %w", err)
 	}
 	fmt.Printf("Found %d files\n", len(files))
-
-	// Build file upload request
-	fileReqs := make([]hubclient.FileUploadRequest, len(files))
-	for i, f := range files {
-		fileReqs[i] = hubclient.FileUploadRequest{
-			Path: f.Path,
-			Size: f.Size,
-		}
-	}
 
 	// Get grove ID for grove scope
 	var groveID string
@@ -1016,51 +1007,59 @@ func syncTemplateToHub(hubCtx *HubContext, name, localPath, scope, harnessType s
 		localFileMap[files[i].Path] = &files[i]
 	}
 
-	// Track which files need to be uploaded
-	var filesToUpload []hubclient.FileUploadRequest
+	// Determine which files need uploading
+	var filesToUpload []*hubclient.FileInfo
 
 	if existingTemplate != nil {
 		templateID = existingTemplate.ID
 
 		// Fetch existing file manifest to compare hashes
 		fmt.Printf("Checking for changes in template '%s'...\n", name)
-		downloadResp, err := hubCtx.Client.Templates().RequestDownloadURLs(ctx, templateID)
+		listResp, listErr := hubCtx.Client.Templates().ListFiles(ctx, templateID)
 
-		// Check if the template exists but has no files (e.g., due to previous storage misconfiguration)
-		// In this case, treat it like a new template that needs all files uploaded
-		templateNeedsFullUpload := false
-		if err != nil {
-			// Check for "template has no files" error - this means the template record exists
-			// but was never finalized (e.g., storage was misconfigured during initial sync)
-			if strings.Contains(err.Error(), "template has no files") {
-				fmt.Printf("Template '%s' exists but has no files (possibly from incomplete previous sync).\n", name)
-				fmt.Printf("Uploading all files...\n")
-				templateNeedsFullUpload = true
-				filesToUpload = fileReqs
+		uploadAll := false
+		if listErr != nil {
+			// Template exists but has no files — upload everything
+			if strings.Contains(listErr.Error(), "template has no files") || (listResp != nil && listResp.TotalCount == 0) {
+				fmt.Printf("Template '%s' exists but has no files. Uploading all files...\n", name)
+				uploadAll = true
 			} else {
-				return fmt.Errorf("failed to get existing template manifest: %w", err)
+				return fmt.Errorf("failed to list template files: %w", listErr)
 			}
 		}
 
-		if !templateNeedsFullUpload {
-			// Build map of remote file hashes
-			remoteHashes := make(map[string]string)
-			for _, f := range downloadResp.Files {
-				remoteHashes[f.Path] = f.Hash
+		if uploadAll {
+			for i := range files {
+				filesToUpload = append(filesToUpload, &files[i])
 			}
-
-			// Compare local vs remote - find changed/new files
-			for _, localFile := range files {
-				remoteHash, exists := remoteHashes[localFile.Path]
-				if !exists || remoteHash != localFile.Hash {
-					filesToUpload = append(filesToUpload, hubclient.FileUploadRequest{
-						Path: localFile.Path,
-						Size: localFile.Size,
-					})
+		} else {
+			// Build map of remote file hashes from the manifest list
+			remoteHashes := make(map[string]string)
+			if listResp != nil {
+				for _, f := range listResp.Files {
+					// ListFiles doesn't return hashes directly; use ReadFile for
+					// hash comparison. But we can compare by reading the existing
+					// template's file list from the Get endpoint which includes hashes.
+					remoteHashes[f.Path] = "" // placeholder
 				}
 			}
 
-			// Check if anything changed
+			// Get template with full file hashes for diffing
+			tmpl, getErr := hubCtx.Client.Templates().Get(ctx, templateID)
+			if getErr == nil && tmpl != nil {
+				for _, f := range tmpl.Files {
+					remoteHashes[f.Path] = f.Hash
+				}
+			}
+
+			// Compare local vs remote
+			for i := range files {
+				remoteHash, exists := remoteHashes[files[i].Path]
+				if !exists || remoteHash != files[i].Hash {
+					filesToUpload = append(filesToUpload, &files[i])
+				}
+			}
+
 			if len(filesToUpload) == 0 {
 				fmt.Printf("Template '%s' is already up to date.\n", name)
 				fmt.Printf("  ID: %s\n", templateID)
@@ -1071,7 +1070,7 @@ func syncTemplateToHub(hubCtx *HubContext, name, localPath, scope, harnessType s
 			fmt.Printf("Found %d changed file(s), updating template...\n", len(filesToUpload))
 		}
 	} else {
-		// Create new template - upload all files
+		// Create new template
 		fmt.Printf("Creating template '%s' in Hub...\n", name)
 		createReq := &hubclient.CreateTemplateRequest{
 			Name:    name,
@@ -1080,99 +1079,39 @@ func syncTemplateToHub(hubCtx *HubContext, name, localPath, scope, harnessType s
 			GroveID: groveID,
 		}
 
-		resp, err := hubCtx.Client.Templates().Create(ctx, createReq)
-		if err != nil {
-			return fmt.Errorf("failed to create template: %w", err)
+		resp, createErr := hubCtx.Client.Templates().Create(ctx, createReq)
+		if createErr != nil {
+			return fmt.Errorf("failed to create template: %w", createErr)
 		}
 
 		templateID = resp.Template.ID
 		fmt.Printf("Template created with ID: %s\n", templateID)
 
 		// All files need to be uploaded for new templates
-		filesToUpload = fileReqs
+		for i := range files {
+			filesToUpload = append(filesToUpload, &files[i])
+		}
 	}
 
-	// Request upload URLs only for files that need uploading
-	fmt.Printf("Requesting upload URLs for %d file(s)...\n", len(filesToUpload))
-	uploadResp, err := hubCtx.Client.Templates().RequestUploadURLs(ctx, templateID, filesToUpload)
-	if err != nil {
-		return fmt.Errorf("failed to get upload URLs: %w", err)
-	}
-
-	// Upload files
-	fmt.Printf("Uploading %d file(s)...\n", len(uploadResp.UploadURLs))
-	for _, urlInfo := range uploadResp.UploadURLs {
-		fileInfo := localFileMap[urlInfo.Path]
-		if fileInfo == nil {
-			fmt.Printf("  Warning: no matching file for %s\n", urlInfo.Path)
-			continue
+	// Upload files directly to hub (no signed URLs needed)
+	fmt.Printf("Uploading %d file(s)...\n", len(filesToUpload))
+	for _, fileInfo := range filesToUpload {
+		content, readErr := os.ReadFile(fileInfo.FullPath)
+		if readErr != nil {
+			return fmt.Errorf("failed to read %s: %w", fileInfo.Path, readErr)
 		}
 
-		// Open and upload file
-		f, err := os.Open(fileInfo.FullPath)
-		if err != nil {
-			return fmt.Errorf("failed to open %s: %w", fileInfo.Path, err)
-		}
-
-		err = hubCtx.Client.Templates().UploadFile(ctx, urlInfo.URL, urlInfo.Method, urlInfo.Headers, f)
-		f.Close()
-		if err != nil {
-			return fmt.Errorf("failed to upload %s: %w", fileInfo.Path, err)
+		_, writeErr := hubCtx.Client.Templates().WriteFile(ctx, templateID, fileInfo.Path, string(content))
+		if writeErr != nil {
+			return fmt.Errorf("failed to upload %s: %w", fileInfo.Path, writeErr)
 		}
 		fmt.Printf("  Uploaded: %s\n", fileInfo.Path)
 	}
 
-	// Build manifest
-	manifest := &hubclient.TemplateManifest{
-		Version: "1.0",
-		Harness: harnessType,
-		Files:   make([]hubclient.TemplateFile, len(files)),
-	}
-	for i, f := range files {
-		manifest.Files[i] = hubclient.TemplateFile{
-			Path: f.Path,
-			Size: f.Size,
-			Hash: f.Hash,
-			Mode: f.Mode,
-		}
-	}
-
-	// Finalize template
-	fmt.Println("Finalizing template...")
-	template, err := hubCtx.Client.Templates().Finalize(ctx, templateID, manifest)
+	// Get final template state (WriteFile updates manifest + hash atomically)
+	template, err := hubCtx.Client.Templates().Get(ctx, templateID)
 	if err != nil {
-		// If finalize failed because files are missing from storage (e.g., stale
-		// manifest from a previous incomplete sync or storage data loss), retry
-		// by re-uploading all files.
-		if !strings.Contains(err.Error(), "file not found") {
-			return fmt.Errorf("failed to finalize template: %w", err)
-		}
-
-		fmt.Println("Some files missing from storage, re-uploading all files...")
-		retryResp, retryErr := hubCtx.Client.Templates().RequestUploadURLs(ctx, templateID, fileReqs)
-		if retryErr != nil {
-			return fmt.Errorf("failed to get upload URLs for retry: %w", retryErr)
-		}
-		for _, urlInfo := range retryResp.UploadURLs {
-			fileInfo := localFileMap[urlInfo.Path]
-			if fileInfo == nil {
-				continue
-			}
-			f, openErr := os.Open(fileInfo.FullPath)
-			if openErr != nil {
-				return fmt.Errorf("failed to open %s: %w", fileInfo.Path, openErr)
-			}
-			uploadErr := hubCtx.Client.Templates().UploadFile(ctx, urlInfo.URL, urlInfo.Method, urlInfo.Headers, f)
-			f.Close()
-			if uploadErr != nil {
-				return fmt.Errorf("failed to upload %s: %w", fileInfo.Path, uploadErr)
-			}
-			fmt.Printf("  Re-uploaded: %s\n", fileInfo.Path)
-		}
-		template, err = hubCtx.Client.Templates().Finalize(ctx, templateID, manifest)
-		if err != nil {
-			return fmt.Errorf("failed to finalize template after retry: %w", err)
-		}
+		return fmt.Errorf("failed to get template after upload: %w", err)
 	}
 
 	if isJSONOutput() {

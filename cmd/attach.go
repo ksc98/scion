@@ -87,10 +87,14 @@ If the agent was started with tmux support, this will attach to the tmux session
 			return fmt.Errorf("agent '%s' not found in grove '%s'", agentName, groveName)
 		}
 
-		// Load agent config to get the runtime
-		effectiveRuntime := agent.GetSavedRuntime(agentName, targetGrovePath)
+		// Load agent config to get the profile (falling back to runtime
+		// type for legacy agents that pre-date the profile field).
+		effectiveProfile := agent.GetSavedProfile(agentName, targetGrovePath)
+		if effectiveProfile == "" {
+			effectiveProfile = agent.GetSavedRuntime(agentName, targetGrovePath)
+		}
 
-		rt := runtime.GetRuntime(targetGrovePath, effectiveRuntime)
+		rt := runtime.GetRuntime(targetGrovePath, effectiveProfile)
 
 		fmt.Printf("Attaching to agent '%s' (grove: %s)...\n", agentName, groveName)
 		err = rt.Attach(context.Background(), agentName)

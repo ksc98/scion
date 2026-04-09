@@ -97,6 +97,11 @@ return an error instead of blocking.`,
 		if parentName == "grove" {
 			requiresGrove = false
 		}
+		// Server subcommands (e.g. `scion server start`) run the hub/broker
+		// themselves and don't need local grove context.
+		if parentName == "server" {
+			requiresGrove = false
+		}
 
 		// For commands that require grove context, use RequireGrovePath
 		// to error if no project found and --global not specified

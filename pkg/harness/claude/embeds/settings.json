@@ -1,7 +1,7 @@
 {
     "env": {
-    "ANTHROPIC_MODEL":"claude-opus-4-6@default",
-    "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4-5@20251001"
+    "ANTHROPIC_MODEL":"claude-opus-4-6",
+    "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4-5"
   },
   "autoUpdater": {
     "disabled": true
@@ -10,10 +10,10 @@
     "enabled": false
   },
   "permissions": {
-        "allow": [
-      "*"
-    ]
+    "allow": ["*"],
+    "defaultMode": "bypassPermissions"
   },
+  "skipDangerousModePermissionPrompt": true,
   "includeCoAuthoredBy": false,
   "gitAttribution": false,
   "hooks": {

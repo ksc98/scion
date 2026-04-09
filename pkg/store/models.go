@@ -436,8 +436,14 @@ type HubAccessConfig struct {
 
 // KubernetesConfig holds Kubernetes-specific configuration for templates.
 type KubernetesConfig struct {
-	Resources    *ResourceRequirements `json:"resources,omitempty"`
-	NodeSelector map[string]string     `json:"nodeSelector,omitempty"`
+	RuntimeClassName      string                `json:"runtimeClassName,omitempty"`
+	ServiceAccountName    string                `json:"serviceAccountName,omitempty"`
+	ImagePullPolicy       string                `json:"imagePullPolicy,omitempty"`
+	Resources             *ResourceRequirements `json:"resources,omitempty"`
+	NodeSelector          map[string]string     `json:"nodeSelector,omitempty"`
+	Tolerations           []api.K8sToleration   `json:"tolerations,omitempty"`
+	SharedDirStorageClass string                `json:"shared_dir_storage_class,omitempty"`
+	SharedDirSize         string                `json:"shared_dir_size,omitempty"`
 }
 
 // ResourceRequirements defines compute resource requirements.

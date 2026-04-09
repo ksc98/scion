@@ -7845,6 +7845,44 @@ func (s *Server) populateAgentConfig(agent *store.Agent, grove *store.Grove, res
 					}
 				}
 			}
+			// Merge template kubernetes config as default (don't overwrite explicit inline kubernetes)
+			if resolvedTemplate.Config.Kubernetes != nil {
+				if agent.AppliedConfig.InlineConfig == nil {
+					agent.AppliedConfig.InlineConfig = &api.ScionConfig{}
+				}
+				if agent.AppliedConfig.InlineConfig.Kubernetes == nil {
+					agent.AppliedConfig.InlineConfig.Kubernetes = &api.KubernetesConfig{}
+				}
+				tk := resolvedTemplate.Config.Kubernetes
+				ak := agent.AppliedConfig.InlineConfig.Kubernetes
+				if tk.RuntimeClassName != "" && ak.RuntimeClassName == "" {
+					ak.RuntimeClassName = tk.RuntimeClassName
+				}
+				if tk.ServiceAccountName != "" && ak.ServiceAccountName == "" {
+					ak.ServiceAccountName = tk.ServiceAccountName
+				}
+				if tk.ImagePullPolicy != "" && ak.ImagePullPolicy == "" {
+					ak.ImagePullPolicy = tk.ImagePullPolicy
+				}
+				if len(tk.NodeSelector) > 0 && len(ak.NodeSelector) == 0 {
+					ak.NodeSelector = tk.NodeSelector
+				}
+				if len(tk.Tolerations) > 0 && len(ak.Tolerations) == 0 {
+					ak.Tolerations = tk.Tolerations
+				}
+				if tk.Resources != nil && ak.Resources == nil {
+					ak.Resources = &api.K8sResources{
+						Requests: tk.Resources.Requests,
+						Limits:   tk.Resources.Limits,
+					}
+				}
+				if tk.SharedDirStorageClass != "" && ak.SharedDirStorageClass == "" {
+					ak.SharedDirStorageClass = tk.SharedDirStorageClass
+				}
+				if tk.SharedDirSize != "" && ak.SharedDirSize == "" {
+					ak.SharedDirSize = tk.SharedDirSize
+				}
+			}
 			// Merge template telemetry config as default (don't overwrite explicit inline telemetry)
 			if resolvedTemplate.Config.Telemetry != nil {
 				if agent.AppliedConfig.InlineConfig == nil {

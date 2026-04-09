@@ -2255,7 +2255,33 @@ func runHubLink(cmd *cobra.Command, args []string) error {
 
 			baseSlug := api.Slugify(groveName)
 			nextSlug := hubsync.NextSlugFromMatches(baseSlug, matches)
-			choice, selectedID := hubsync.ShowMatchingGrovesPrompt(groveName, matches, nextSlug, autoConfirm)
+
+			// Auto-link when the local repo's origin remote matches exactly
+			// one hub grove's remote. This skips the interactive prompt for
+			// the unambiguous case (single grove name + matching git remote)
+			// while still prompting on ambiguity or when remotes differ.
+			autoLinked := false
+			var choice hubsync.GroveChoice
+			var selectedID string
+			if localRemote := util.NormalizeGitRemote(util.GetGitRemoteDir(resolvedPath)); localRemote != "" {
+				var remoteMatches []hubsync.GroveMatch
+				for _, m := range matches {
+					if util.NormalizeGitRemote(m.GitRemote) == localRemote {
+						remoteMatches = append(remoteMatches, m)
+					}
+				}
+				if len(remoteMatches) == 1 {
+					choice = hubsync.GroveChoiceLink
+					selectedID = remoteMatches[0].ID
+					autoLinked = true
+					fmt.Printf("Auto-linking to existing grove '%s' (ID: %s, remote: %s)\n",
+						remoteMatches[0].Name, remoteMatches[0].ID, remoteMatches[0].GitRemote)
+				}
+			}
+
+			if !autoLinked {
+				choice, selectedID = hubsync.ShowMatchingGrovesPrompt(groveName, matches, nextSlug, autoConfirm)
+			}
 			switch choice {
 			case hubsync.GroveChoiceCancel:
 				return fmt.Errorf("linking cancelled")

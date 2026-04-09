@@ -74,13 +74,13 @@ RUN if getent passwd node; then userdel -r node; fi
 
 COPY --from=builder /etc/apt/keyrings/githubcli-archive-keyring.gpg /etc/apt/keyrings/githubcli-archive-keyring.gpg
 COPY --from=builder /usr/share/keyrings/cloud.google.gpg /usr/share/keyrings/cloud.google.gpg
-RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
 
-# Setup gcsfuse repository
-RUN . /etc/os-release && \
-    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt gcsfuse-${VERSION_CODENAME} main" | tee /etc/apt/sources.list.d/gcsfuse.list
+# Configure third-party apt repos (github cli + gcsfuse) in one layer
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
+    . /etc/os-release && \
+    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt gcsfuse-${VERSION_CODENAME} main" > /etc/apt/sources.list.d/gcsfuse.list
 
-# Install runtime dependencies for Git and common tools
+# Install all runtime dependencies in a single layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux \
     ca-certificates \
@@ -88,6 +88,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libexpat1 \
     zlib1g \
     python3 \
+    python3-venv \
     make \
     g++ \
     man-db \
@@ -115,17 +116,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     aggregate \
     nano \
     vim \
-    python3-venv \
     lsb-release \
     chromium \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Setup GCS-FUSE
-RUN GCSFUSE_REPO=gcsfuse-`lsb_release -c -s` && echo "deb [signed-by=/usr/share/keyrings/cloud.google.asc] https://packages.cloud.google.com/apt $GCSFUSE_REPO main" | sudo tee /etc/apt/sources.list.d/gcsfuse.list
-RUN curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo tee /usr/share/keyrings/cloud.google.asc
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
     gcsfuse \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -139,19 +131,10 @@ COPY --from=builder /usr/local/share/git-core /usr/local/share/git-core
 # Copy Bun from bun-source
 COPY --from=bun-source /usr/local/bin/bun /usr/local/bin/bun
 
-# Install gcloud CLI
-RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
-    apt-get update && apt-get install -y google-cloud-cli && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install golangci-lint
-RUN ARCH=$(dpkg --print-architecture) && \
-    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin
-
 # Setup npm global directory
 RUN mkdir -p /usr/local/share/npm-global
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-ENV PATH=/usr/local/share/npm-global/bin:/usr/local/go/bin:/usr/local/gcloud/google-cloud-sdk/bin:$PATH
+ENV PATH=/usr/local/share/npm-global/bin:/usr/local/go/bin:$PATH
 ENV LC_ALL=C.UTF-8
 ENV EDITOR=nano
 ENV VISUAL=nano

@@ -296,6 +296,9 @@ func deleteStoppedViaHub(hubCtx *HubContext) error {
 func deleteAgentLocal(agentName string) error {
 	effectiveProfile := profile
 	if effectiveProfile == "" {
+		effectiveProfile = agent.GetSavedProfile(agentName, grovePath)
+	}
+	if effectiveProfile == "" {
 		effectiveProfile = agent.GetSavedRuntime(agentName, grovePath)
 	}
 

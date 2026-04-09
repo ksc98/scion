@@ -160,19 +160,31 @@ func (c *ClaudeCode) Provision(ctx context.Context, agentName, agentDir, agentHo
 
 func (c *ClaudeCode) provisionClaudeJSON(agentHome, agentWorkspace string) error {
 	claudeJSONPath := filepath.Join(agentHome, ".claude.json")
-	if _, err := os.Stat(claudeJSONPath); os.IsNotExist(err) {
-		return nil
-	}
 
-	data, err := os.ReadFile(claudeJSONPath)
-	if err != nil {
+	// Read the existing .claude.json (seeded from the embed). If it does not
+	// exist or is unreadable, start from a minimal config — we still need to
+	// land a projects map with `hasTrustDialogAccepted: true` so Claude Code
+	// does not show the folder trust gate on first run inside the container.
+	claudeCfg := make(map[string]interface{})
+	if data, err := os.ReadFile(claudeJSONPath); err == nil {
+		if err := json.Unmarshal(data, &claudeCfg); err != nil {
+			return fmt.Errorf("failed to parse %s: %w", claudeJSONPath, err)
+		}
+	} else if !os.IsNotExist(err) {
 		return err
 	}
 
-	var claudeCfg map[string]interface{}
-	if err := json.Unmarshal(data, &claudeCfg); err != nil {
-		return err
+	// Make sure top-level fields the harness depends on are present even if
+	// we're starting from a fresh map. These mirror the values from the
+	// embedded .claude.json so a freshly-created file is indistinguishable
+	// from a seeded one.
+	setDefault := func(key string, value interface{}) {
+		if _, ok := claudeCfg[key]; !ok {
+			claudeCfg[key] = value
+		}
 	}
+	setDefault("hasCompletedOnboarding", true)
+	setDefault("bypassPermissionsModeAccepted", true)
 
 	repoRoot, err := util.RepoRoot()
 	containerWorkspace := "/workspace"
@@ -183,19 +195,19 @@ func (c *ClaudeCode) provisionClaudeJSON(agentHome, agentWorkspace string) error
 		}
 	}
 
-	// Update projects map
-	projects, ok := claudeCfg["projects"].(map[string]interface{})
-	if !ok {
-		projects = make(map[string]interface{})
-		claudeCfg["projects"] = projects
+	// Carry over an existing project settings block (from the embed) if one
+	// is present, otherwise build a minimal default. Either way we will force
+	// hasTrustDialogAccepted=true below so the trust gate is bypassed even
+	// when an inherited entry had it disabled.
+	var projectSettings map[string]interface{}
+	if existing, ok := claudeCfg["projects"].(map[string]interface{}); ok {
+		for _, v := range existing {
+			if m, ok := v.(map[string]interface{}); ok {
+				projectSettings = m
+				break
+			}
+		}
 	}
-
-	var projectSettings interface{}
-	for _, v := range projects {
-		projectSettings = v
-		break
-	}
-
 	if projectSettings == nil {
 		projectSettings = map[string]interface{}{
 			"allowedTools":                            []interface{}{},
@@ -203,16 +215,25 @@ func (c *ClaudeCode) provisionClaudeJSON(agentHome, agentWorkspace string) error
 			"mcpServers":                              map[string]interface{}{},
 			"enabledMcpjsonServers":                   []interface{}{},
 			"disabledMcpjsonServers":                  []interface{}{},
-			"hasTrustDialogAccepted":                  false,
 			"projectOnboardingSeenCount":              1,
 			"hasClaudeMdExternalIncludesApproved":     false,
 			"hasClaudeMdExternalIncludesWarningShown": false,
 			"exampleFiles":                            []interface{}{},
 		}
 	}
+	// Force-trust the workspace regardless of what the inherited entry said.
+	projectSettings["hasTrustDialogAccepted"] = true
 
+	// Register the project under both possible in-container paths so the
+	// trust setting applies regardless of how the runtime mounts the
+	// workspace. The local docker runtime mounts the host repo at
+	// /repo-root, so cwd ends up at /repo-root/<rel>; the k8s runtime
+	// only mounts the agent workspace at /workspace.
 	newProjects := make(map[string]interface{})
 	newProjects[containerWorkspace] = projectSettings
+	if containerWorkspace != "/workspace" {
+		newProjects["/workspace"] = projectSettings
+	}
 	claudeCfg["projects"] = newProjects
 
 	newData, err := json.MarshalIndent(claudeCfg, "", "  ")

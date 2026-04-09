@@ -17,6 +17,7 @@ package hub
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -592,6 +593,22 @@ func (s *Server) handleTemplateFinalize(w http.ResponseWriter, r *http.Request, 
 	template.Files = req.Manifest.Files
 	template.ContentHash = contentHash
 	template.Status = store.TemplateStatusActive
+
+	// Parse scion-agent.yaml from storage to populate template config
+	for _, f := range req.Manifest.Files {
+		if isAgentConfigFile(f.Path) {
+			objectPath := template.StoragePath + "/" + f.Path
+			reader, _, readErr := stor.Download(ctx, objectPath)
+			if readErr == nil {
+				data, ioErr := io.ReadAll(reader)
+				reader.Close()
+				if ioErr == nil {
+					updateTemplateConfigFromAgentYAML(template, data)
+				}
+			}
+			break
+		}
+	}
 
 	if err := s.store.UpdateTemplate(ctx, template); err != nil {
 		writeErrorFromErr(w, err, "")

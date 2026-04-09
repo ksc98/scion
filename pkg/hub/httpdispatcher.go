@@ -387,10 +387,23 @@ func (d *HTTPAgentDispatcher) buildCreateRequest(ctx context.Context, agent *sto
 			req.ResolvedEnv = make(map[string]string)
 		}
 		for _, s := range resolvedSecrets {
-			if (s.Type == "environment" || s.Type == "") && s.Target != "" {
-				if existing, exists := req.ResolvedEnv[s.Target]; !exists || existing == "" {
-					req.ResolvedEnv[s.Target] = s.Value
-				}
+			if s.Type != "environment" && s.Type != "" {
+				continue
+			}
+			// Environment-type secrets typically only have a Name (the env
+			// var key) and no Target — `scion hub secret set FOO bar`
+			// produces Name=FOO, Target="". Older code only consulted
+			// Target, which silently dropped every secret created via the
+			// CLI's default form. Fall back to Name when Target is empty.
+			key := s.Target
+			if key == "" {
+				key = s.Name
+			}
+			if key == "" {
+				continue
+			}
+			if existing, exists := req.ResolvedEnv[key]; !exists || existing == "" {
+				req.ResolvedEnv[key] = s.Value
 			}
 		}
 	}

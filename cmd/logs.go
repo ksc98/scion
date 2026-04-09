@@ -22,6 +22,7 @@ import (
 
 	"github.com/GoogleCloudPlatform/scion/pkg/agent"
 	"github.com/GoogleCloudPlatform/scion/pkg/api"
+	"github.com/GoogleCloudPlatform/scion/pkg/config"
 	"github.com/GoogleCloudPlatform/scion/pkg/hubclient"
 	"github.com/GoogleCloudPlatform/scion/pkg/runtime"
 	"github.com/spf13/cobra"
@@ -63,6 +64,9 @@ var logsCmd = &cobra.Command{
 		// Local mode: read from filesystem
 		effectiveProfile := profile
 		if effectiveProfile == "" {
+			effectiveProfile = agent.GetSavedProfile(agentName, grovePath)
+		}
+		if effectiveProfile == "" {
 			effectiveProfile = agent.GetSavedRuntime(agentName, grovePath)
 		}
 
@@ -81,11 +85,28 @@ var logsCmd = &cobra.Command{
 		}
 
 		a := agents[0]
+
+		// Remote runtimes (k8s) keep the agent home inside the pod, so the
+		// host-side agent.log file doesn't exist. Fetch container stdout via
+		// the runtime's GetLogs implementation, which uses the runtime's
+		// native API (e.g. the k8s SDK pod logs endpoint).
+		if a.Runtime == "kubernetes" {
+			data, err := rt.GetLogs(cmd.Context(), a.ContainerID)
+			if err != nil {
+				return fmt.Errorf("failed to fetch logs from %s runtime: %w", a.Runtime, err)
+			}
+			fmt.Print(data)
+			return nil
+		}
+
 		if a.GrovePath == "" {
 			return fmt.Errorf("agent %s has no grove path configured", agentName)
 		}
 
-		agentLogPath := filepath.Join(a.GrovePath, "agents", agentName, "home", "agent.log")
+		// Use GetAgentHomePath so split-storage git groves resolve to the
+		// external ~/.scion/grove-configs/<slug>/.scion/agents/<name>/home
+		// rather than the in-repo grove path.
+		agentLogPath := filepath.Join(config.GetAgentHomePath(a.GrovePath, agentName), "agent.log")
 		if _, err := os.Stat(agentLogPath); os.IsNotExist(err) {
 			return fmt.Errorf("log file not found: %s\n\nThe agent may not have started yet or does not produce logs", agentLogPath)
 		}

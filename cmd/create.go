@@ -163,13 +163,19 @@ func createAgentViaHub(hubCtx *HubContext, agentName string, task string) error 
 		return wrapHubError(err)
 	}
 
-	// Resolve template if specified
+	// Resolve template: use explicit flag, or fall back to settings default
+	effectiveTemplateName := templateName
+	if effectiveTemplateName == "" {
+		if vs, _, loadErr := config.LoadEffectiveSettings(hubCtx.GrovePath); loadErr == nil && vs != nil && vs.DefaultTemplate != "" {
+			effectiveTemplateName = vs.DefaultTemplate
+		}
+	}
 	var resolvedTemplate string
-	if templateName != "" {
+	if effectiveTemplateName != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		result, err := ResolveTemplateForHub(ctx, hubCtx, templateName)
+		result, err := ResolveTemplateForHub(ctx, hubCtx, effectiveTemplateName)
 		if err != nil {
 			return wrapHubError(fmt.Errorf("template resolution failed: %w", err))
 		}
